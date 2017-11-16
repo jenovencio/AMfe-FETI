@@ -299,7 +299,17 @@ class Assembly():
         [np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*node_id)
                    for node_id in elements], dtype=int).reshape(-1)
          for elements in connectivity]
-
+        
+        # creating an id_matrix for mapping nodes to degress of freedom
+        self.id_matrix = []
+        dof_count = 0
+        for i in range(self.mesh.no_of_nodes):
+            local_list =  []
+            for local_dof in range(no_of_dofs_per_node):
+                local_list.append(dof_count)
+                dof_count +=1
+            self.id_matrix.append(local_list)        
+    
         self.neumann_indices = \
         [np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*i)
                    for i in nodes], dtype=int).reshape(-1)
