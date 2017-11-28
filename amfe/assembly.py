@@ -320,7 +320,7 @@ class Assembly():
         self.elements_on_node = np.bincount(nodes_vec)
 
 
-    def assemble_k_and_f(self, u, t):
+    def assemble_k_and_f(self, u=None, t=0):
         '''
         Assembles the stiffness matrix of the given mesh and element.
 
@@ -362,6 +362,8 @@ class Assembly():
             # K_csr[indices, indices] += K
             fill_csr_matrix(K_csr.indptr, K_csr.indices, K_csr.data, K, indices)
 
+        self.stiffness = K_csr
+        self.force = f_glob
         return K_csr, f_glob
 
 
