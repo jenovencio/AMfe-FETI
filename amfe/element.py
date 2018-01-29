@@ -49,11 +49,12 @@ from numpy import sqrt
 # Try to import Fortran routines
 use_fortran = False
 
-try:
-    import amfe.f90_element
-    use_fortran = True
-except Exception:
-    print('''Python was not able to load the fast fortran element routines.''')
+if use_fortran:
+	try:
+		import amfe.f90_element
+		use_fortran = True
+	except Exception:
+		print('''Python was not able to load the fast fortran element routines.''')
 
 #use_fortran = False
 #print('Explicit no use of fortran routines in the Element routine')
