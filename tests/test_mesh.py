@@ -56,9 +56,59 @@ class test_mesh(unittest.TestCase):
             for key_id in range(5): 
                 self.assertEqual(base_mesh.el_df.keys()[key_id],my_mesh.el_df.keys()[key_id])
         
+    def test_load_subset_1(self):
+        # Load phys_group to a mesh
+        print('Loading a the entire domain to mesh')
+        my_mesh = amfe.Mesh()
+        my_mesh.import_msh(mshfile)
+        my_mesh.load_group_to_mesh(11,my_material,mesh_prop='phys_group')
+        n1 = len(my_mesh.connectivity)
+        print('Number of loaded Elements = %i' %n1)
+        
+        
+        # Load partition to a mesh
+        my_mesh = amfe.Mesh()
+        my_mesh.import_msh(mshfile)
+        
+        print('Loading partition 1 to mesh with phys_group=11')
+        sub_dict ={}
+        sub_dict['phys_group'] = 11
+        
+        my_mesh.load_subset(sub_dict, my_material)
+        n2 = len(my_mesh.connectivity)
+        print('Number of loaded Elements = %i' %n2)
+        
+        self.assertEqual(n2,n1)
+        
+    def test_load_subset_2(self):
+        # Load phys_group to a mesh
+        print('Loading a the entire domain to mesh')
+        my_mesh = amfe.Mesh()
+        my_mesh.import_msh(mshfile)
+        my_mesh.load_group_to_mesh(11,my_material,mesh_prop='phys_group')
+        n1 = len(my_mesh.connectivity)
+        print('Number of loaded Elements = %i' %n1)
+        
+        
+        # Load partition to a mesh
+        my_mesh = amfe.Mesh()
+        my_mesh.import_msh(mshfile)
+        
+        print('Loading partition 1 to mesh with phys_group=11')
+        sub_dict ={}
+        sub_dict['phys_group'] = 11
+        sub_dict['partition_id'] = 1
+        
+        my_mesh.load_subset(sub_dict, my_material)
+        n2 = len(my_mesh.connectivity)
+        print('Number of loaded Elements = %i' %n2)
+        
+        self.assertLessEqual(n2, n1)
+        
         
  
-
+        
+        
 #t = test_mesh()
 #t.test_import_msh()
 

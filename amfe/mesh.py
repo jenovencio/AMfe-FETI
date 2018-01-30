@@ -983,7 +983,7 @@ class Mesh:
             df_col = df.columns.tolist()
             df_col_start = df_col[0:5]
             df_col_end = df_col[5:]
-            df_col_middle = ['no_of_mesh_partitions','mesh_partitions_index','mesh_partitions_neighbors']
+            df_col_middle = ['no_of_mesh_partitions','partition_id','mesh_partitions_neighbors']
             
             # appending partitions to pandas dataframe
             df[df_col_middle[0]] = pd.Series(partitions_num_list)
@@ -1060,7 +1060,7 @@ class Mesh:
             boundary_information gives the groups
         material : Material class
             Material class which will be assigned to the elements
-        mesh_prop : {'phys_group', 'geom_entity', 'el_type'}, optional
+        mesh_prop : {'phys_group', 'geom_entity', 'el_type', 'partition_id'}, optional
             label of which the element should be chosen from. Standard is
             physical group.
 
@@ -1111,6 +1111,92 @@ class Mesh:
         print('Total number of elements in mesh:', len(self.ele_obj))
         print('*************************************************************')
 
+
+    def load_subset(self,subset_dict,material):
+        '''
+        Load a specifity mesh intersection to the main mesh with given material.
+        
+        It generates the connectivity list (mesh-class-property connectivity)
+        which contains the element configuration as array
+        and provides a map with pointers to Element-Objects (Tet, Hex etc.)
+        which already contain information about material that is passed.
+        Each element gets a pointer to such an element object.
+
+        Parameters
+        ----------
+        subset_dict : dict
+            dict[Key] = mesh_prop : {'phys_group', 'geom_entity', 'el_type', 'partition_id'}
+            optional label of which the element should be chosen from. Standard is
+            physical group.
+            
+            dict value = for mesh property which is to be chosen. Matches the group given
+            in the gmsh file. For help, the function mesh_information or
+            boundary_information gives the groups
+            
+        material : Material class
+            Material class which will be assigned to the elements
+        
+
+        Returns
+        -------
+        None
+        '''
+                # asking for a group to be chosen, when no valid group is given
+        df = self.el_df
+        
+        for sub_key in subset_dict:
+            if sub_key not in df.columns:
+                print('The given mesh property "' + str(sub_key) + '" is not valid!',
+                      'Please enter a valid mesh prop from the following list:\n')
+                for i in df.columns:
+                    print(i)
+                return
+        
+        for sub_key in subset_dict:
+            key = subset_dict[sub_key]
+            while key not in pd.unique(df[sub_key]):
+                self.mesh_information(sub_key)
+                print('\nNo valid', sub_key, 'is given.\n(Given', sub_key,
+                      'is', key, ')')
+                subset_dict[sub_key] = int(input('Please choose a ' + sub_key + ' to be used as mesh: '))
+                
+
+        # make a pandas dataframe just for the desired elements
+        sub_df = df.copy()
+        try:
+            for sub_key in subset_dict:
+                sub_df = sub_df[sub_df[sub_key] == subset_dict[sub_key]]
+        except:
+            print('Make sure there is a intersection among groups')
+
+        elements_df = sub_df
+        # add the nodes of the chosen group
+        connectivity = [np.nan for i in range(len(elements_df))]
+        for i, ele in enumerate(elements_df.values):
+            no_of_nodes = amfe2no_of_nodes[elements_df.el_type.iloc[i]]
+            connectivity[i] = np.array(ele[self.node_idx :
+                                           self.node_idx + no_of_nodes],
+                                       dtype=int)
+
+        self.connectivity.extend(connectivity)
+
+        # make a deep copy of the element class dict and apply the material
+        # then add the element objects to the ele_obj list
+        ele_class_dict = copy.deepcopy(self.element_class_dict)
+        for i in ele_class_dict:
+            ele_class_dict[i].material = material
+        object_series = elements_df.el_type.map(ele_class_dict)
+        self.ele_obj.extend(object_series.values.tolist())
+        self._update_mesh_props()
+
+        # print some output stuff
+        print('\nIntersection of the following groups: ')
+        for sub_key in subset_dict:
+            print( sub_key, subset_dict[sub_key])
+        
+        print('with', len(connectivity), ' elements successfully added.')
+        print('Total number of elements in mesh:', len(self.ele_obj))
+        print('*************************************************************')
 
     def tie_mesh(self, master_key, slave_key, master_prop='phys_group',
                  slave_prop='phys_group', tying_type='fixed', robustness=4,
