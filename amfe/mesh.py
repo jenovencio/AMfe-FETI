@@ -927,7 +927,42 @@ class Mesh:
                                          list_imported_elements[j].split()]
 
         # Construct Pandas Dataframe for the elements (self.el_df and df for shorter code)
-        self.el_df = df = pd.DataFrame(list_imported_elements)
+        #subset_list_imported_elements = [row[0:4] for row in list_imported_elements] 
+        
+        #---------------------------------------------------------------------
+        # Handling partitioned mesh
+        
+        # spliting elem list in nodes_list and partition list
+        subset_list_imported_elements = []
+        partitions_num_list = []
+        partitions_index_list = []
+        partitions_neighbors_list = []
+        for elem_id,col in enumerate(list_imported_elements):
+            total_columns = len(list_imported_elements[elem_id])
+            elem_tag = col[2]
+            start_node_id = elem_tag + 3
+            col_slice = col[0:5]
+            col_slice.extend(col[start_node_id:])
+            subset_list_imported_elements.append(col_slice) 
+            
+            # creating lists with number of partitions and partition index list 
+            # and neighbors list per elem
+            if elem_tag==4:
+                partitions_num_list.append(col[5])
+                partitions_index_list.append(col[6])
+                partitions_neighbors_list.append(None)
+            elif elem_tag>4:
+                partitions_num_list.append(col[5])
+                partitions_index_list.append(col[6])
+                partitions_neighbors_list.append(col[7:start_node_id])                
+            else:
+                partitions_num_list.append(0)
+                partitions_index_list.append(None)
+                partitions_neighbors_list.append(None)
+        
+        
+        
+        self.el_df = df = pd.DataFrame(subset_list_imported_elements)
         df.rename(copy=False, inplace=True,
                   columns={0 : 'idx_gmsh',
                            1 : 'el_type',
@@ -935,13 +970,32 @@ class Mesh:
                            3 : 'phys_group',
                            4 : 'geom_entity'})
 
+
+            
+
+
         # determine the index, where the nodes of the element start in the dataframe
         if len(df[df['no_of_tags'] != 2]) == 0:
             self.node_idx = node_idx = 5
-        elif len(df[df['no_of_tags'] != 4]) == 0:
-            df.rename(copy=False, inplace=True,
-                 columns={5 : 'no_of_mesh_partitions', 6 : 'mesh_partition'})
-            self.node_idx = node_idx = 7
+            
+        elif len(df[df['no_of_tags'] != 2]) > 0:
+            # geeting columns names in order to reorder
+            df_col = df.columns.tolist()
+            df_col_start = df_col[0:5]
+            df_col_end = df_col[5:]
+            df_col_middle = ['no_of_mesh_partitions','mesh_partitions_index','mesh_partitions_neighbors']
+            
+            # appending partitions to pandas dataframe
+            df[df_col_middle[0]] = pd.Series(partitions_num_list)
+            df[df_col_middle[1]] = pd.Series(partitions_index_list)
+            df[df_col_middle[2]] = pd.Series(partitions_neighbors_list)
+            
+            # reorder dataframe columns
+            new_col_order = df_col_start + df_col_middle + df_col_end
+            self.el_df = df = df[new_col_order]
+            
+            self.node_idx = node_idx = 8
+            
         else:
             raise('''The type of mesh is not supported yet.
         Either you have a corrupted .msh-file or you have a too
