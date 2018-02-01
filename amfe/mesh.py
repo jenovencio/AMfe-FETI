@@ -971,9 +971,6 @@ class Mesh:
                            4 : 'geom_entity'})
 
 
-            
-
-
         # determine the index, where the nodes of the element start in the dataframe
         if len(df[df['no_of_tags'] != 2]) == 0:
             self.node_idx = node_idx = 5
@@ -983,7 +980,7 @@ class Mesh:
             df_col = df.columns.tolist()
             df_col_start = df_col[0:5]
             df_col_end = df_col[5:]
-            df_col_middle = ['no_of_mesh_partitions','partition_id','mesh_partitions_neighbors']
+            df_col_middle = ['no_of_mesh_partitions','partition_id','partitions_neighbors']
             
             # appending partitions to pandas dataframe
             df[df_col_middle[0]] = pd.Series(partitions_num_list)

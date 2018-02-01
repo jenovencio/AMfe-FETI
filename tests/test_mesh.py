@@ -53,8 +53,10 @@ class test_mesh(unittest.TestCase):
             self.assertEqual(base_mesh.no_of_nodes,my_mesh.no_of_nodes)
             self.assertEqual(base_mesh.no_of_dofs,my_mesh.no_of_dofs)
             
+
             for key_id in range(5): 
                 self.assertEqual(base_mesh.el_df.keys()[key_id],my_mesh.el_df.keys()[key_id])
+                
         
     def test_load_subset_1(self):
         # Load phys_group to a mesh

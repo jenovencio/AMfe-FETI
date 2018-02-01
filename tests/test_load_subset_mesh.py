@@ -32,17 +32,17 @@ sub_dict['partition_id'] = 1
 
 my_mesh.load_subset(sub_dict, my_material)
 print('Number of loaded Elements = %i' %len(my_mesh.connectivity))
-
-
-
+#
+#
+#
 print('Loading partition 2 to mesh with phys_group=11')
 sub_dict['phys_group'] = 11
 sub_dict['partition_id'] = 2
-
+#
 my_mesh.load_subset(sub_dict, my_material)
 print('Number of loaded Elements = %i' %len(my_mesh.connectivity))
-
-
+#
+#
 print('Loading partition 3 to mesh with phys_group=11')
 sub_dict['phys_group'] = 11
 sub_dict['partition_id'] = 3
