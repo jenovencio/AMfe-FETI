@@ -84,9 +84,14 @@ class MechanicalSystem():
         self.iteration_info = np.array([])
 
         # instantiate the important classes needed for the system:
-        self.mesh_class = Mesh()
-        self.assembly_class = Assembly(self.mesh_class)
         self.dirichlet_class = DirichletBoundary(np.nan)
+        
+        # old implementation
+        #self.mesh_class = Mesh()
+        #self.assembly_class = Assembly(self.mesh_class)
+        
+        # new implementation using the set_mesh_obj
+        self.set_mesh_obj()
 
         # make syntax a little bit leaner
         # !Christian Meyer: ! careful: This prohibits to easily change dirichlet_class instance, because old instance
@@ -102,6 +107,75 @@ class MechanicalSystem():
 
         # external force to be overwritten by user-defined external forces
         # self._f_ext_unconstr = lambda t: np.zeros(self.mesh_class.no_of_dofs)
+
+
+    def set_mesh_obj(self, mesh_obj = None):
+        ''' This method sets the mesh object (mesh_obj) in the mesh_class variable
+        The user can load the mesh from a file using the load_mesh_from_gmsh method,
+        but if the user already have a mesh_obj instance then, he can use the
+        set_mesh_obj function in order to set the variable mesh_class.
+        If the mesh_obj has boundaries conditions, the mechanical_system will NOT
+        inherit the boundaries conditions from the mesh_obj
+        
+        Parameters
+        ----------
+            mesh_obj:
+                instance of amfe.mesh class
+        
+        Returns
+        -------
+        None
+        '''
+        
+        if mesh_obj is None:
+            self.mesh_class = Mesh()
+            self.assembly_class = Assembly(self.mesh_class)
+        else:    
+            self.mesh_class = mesh_obj
+            self.assembly_class = Assembly(mesh_obj)
+            
+
+        return None
+
+
+    def set_domain(self,subset_dict, material):
+        ''' this function sets a domain after the mesh_class is intantiated
+        then use set_mesh_obj before use this methods.
+        You also can load the mesh file direct using the load_mesh_from_gmsh 
+        method.
+        
+        Parameters
+        ----------
+        subset_dict : dict
+            dict[Key] = mesh_prop : {'phys_group', 'geom_entity', 'el_type', 'partition_id'}
+            optional label of which the element should be chosen from. Standard is
+            physical group.
+            
+            dict value = for mesh property which is to be chosen. Matches the group given
+            in the gmsh file. For help, the function mesh_information or
+            boundary_information gives the groups
+            
+        material : Material class
+            Material class which will be assigned to the elements
+        
+        ex.: self.set_domain({'phys_group':11,'partition_id':1},my_material)
+
+        Returns
+        -------
+        None     
+        
+        
+        '''       
+        try:
+            self.mesh_class.load_subset(subset_dict, material)
+            self.no_of_dofs_per_node =self.mesh_class.no_of_dofs_per_node
+            self.dirichlet_class.no_of_unconstrained_dofs = self.mesh_class.no_of_dofs
+            self.assembly_class.preallocate_csr()
+        
+        except:
+            raise('Please make sure use have a mesh object in the .mesh_class variable')
+        
+        return None
 
 
     def load_mesh_from_gmsh(self, msh_file, phys_group, material,
