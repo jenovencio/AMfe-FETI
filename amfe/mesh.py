@@ -414,7 +414,9 @@ class Mesh:
         index describing, at which position in the Pandas Dataframe `el_df`
         the nodes of the element start.
     domain_dict : dict
-        list of submeshs which represents the domain of the problem 
+        dict of submeshs which represents the domain of the problem 
+    group_dict : dict
+        dict of submeshs which are generate by split_in_group method
     '''
 
     def __init__(self):
@@ -431,6 +433,7 @@ class Mesh:
         self.connectivity = []
         self.ele_obj = []
         self.domain_dict = {} # dict of submeshs 
+        self.groups = {} # dict of submeshs after split_in_group method
         self.neumann_connectivity = []
         self.neumann_obj = []
         self.nodes_dirichlet = np.array([], dtype=int)
