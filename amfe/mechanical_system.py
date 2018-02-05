@@ -138,7 +138,7 @@ class MechanicalSystem():
         return None
 
 
-    def set_domain(self,subset_dict, material):
+    def set_domain(self, key, material, mesh_prop = 'phys_group'):
         ''' this function sets a domain after the mesh_class is intantiated
         then use set_mesh_obj before use this methods.
         You also can load the mesh file direct using the load_mesh_from_gmsh 
@@ -146,19 +146,19 @@ class MechanicalSystem():
         
         Parameters
         ----------
-        subset_dict : dict
-            dict[Key] = mesh_prop : {'phys_group', 'geom_entity', 'el_type', 'partition_id'}
+        Key : int
+            Number of the mesh propertie
+        
+        material : Material Class instance
+            Material class which will be assigned to the elements
+        mesh_prop : str
+            mesh_prop : {'phys_group', 'geom_entity', 'el_type', 'partition_id'}
             optional label of which the element should be chosen from. Standard is
             physical group.
             
-            dict value = for mesh property which is to be chosen. Matches the group given
-            in the gmsh file. For help, the function mesh_information or
-            boundary_information gives the groups
-            
-        material : Material class
-            Material class which will be assigned to the elements
+          
         
-        ex.: self.set_domain({'phys_group':11,'partition_id':1},my_material)
+        ex.: self.set_domain(11)
 
         Returns
         -------
@@ -167,15 +167,17 @@ class MechanicalSystem():
         
         '''       
         try:
-            self.mesh_class.load_subset(subset_dict, material)
+            self.mesh_class.load_group_to_mesh(key, material, mesh_prop)
+            submesh = self.mesh_class.get_submesh(mesh_prop,key)
             self.no_of_dofs_per_node =self.mesh_class.no_of_dofs_per_node
             self.dirichlet_class.no_of_unconstrained_dofs = self.mesh_class.no_of_dofs
             self.assembly_class.preallocate_csr()
         
         except:
             raise('Please make sure use have a mesh object in the .mesh_class variable')
+            
         
-        return None
+        return submesh
 
 
     def load_mesh_from_gmsh(self, msh_file, phys_group, material,

@@ -61,9 +61,16 @@ class test_mesh(unittest.TestCase):
     def test_load_subset_1(self):
         # Load phys_group to a mesh
         print('Loading a the entire domain to mesh')
+        
+        my_material = amfe.KirchhoffMaterial(E=210E9, nu=0.3, rho=7.86E3, plane_stress=True, thickness=0.1)
+        mshfile = amfe.amfe_dir('meshes/test_meshes/3_partition_pressure_corner.msh')
+        
         my_mesh = amfe.Mesh()
         my_mesh.import_msh(mshfile)
         my_mesh.load_group_to_mesh(11,my_material,mesh_prop='phys_group')
+        
+        
+        
         n1 = len(my_mesh.connectivity)
         print('Number of loaded Elements = %i' %n1)
         
@@ -83,6 +90,10 @@ class test_mesh(unittest.TestCase):
         self.assertEqual(n2,n1)
         
     def test_load_subset_2(self):
+        
+        my_material = amfe.KirchhoffMaterial(E=210E9, nu=0.3, rho=7.86E3, plane_stress=True, thickness=0.1)
+        mshfile = amfe.amfe_dir('meshes/test_meshes/3_partition_pressure_corner.msh')
+        
         # Load phys_group to a mesh
         print('Loading a the entire domain to mesh')
         my_mesh = amfe.Mesh()
@@ -107,7 +118,17 @@ class test_mesh(unittest.TestCase):
         
         self.assertLessEqual(n2, n1)
         
+    def test_split_in_groups(self):      
         
+        mshfile = amfe.amfe_dir('meshes/test_meshes/3_partition_pressure_corner.msh')
+        m = amfe.Mesh()
+        m.import_msh(mshfile)
+        
+        m.split_in_groups()
+        eval_list =  list(m.groups.keys())
+        right_list = [9, 12, 10, 13, 11]
+        
+        self.assertListEqual(eval_list, right_list)
  
         
         
