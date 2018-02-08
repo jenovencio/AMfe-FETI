@@ -1352,6 +1352,26 @@ class Mesh:
         -------
         None
         '''
+        
+        #-----------------------------------------------------------------
+        # creating submesh_boundary object to easily handle boundary contitions 
+        # in subdomain. Only works if a domain has send set or load
+        # ex. MechanicalSystem.set_domain({'phys_group':11},my_material) 
+        #     Mesh.load_subset({'phys_group':11},my_material)
+        
+        if self.domain_dict:
+            submesh_obj = self.get_submesh(mesh_prop,key)
+            neu_boundary = Submesh_Boundary(submesh_obj,
+                                             val, 
+                                             direct, 
+                                             time_func, 
+                                             typeBC='neumann')
+            
+            for sub_key, sub_obj in self.domain_dict.items():
+                sub_obj.append_bondary_condition(neu_boundary)
+        
+        #-----------------------------------------------------------------
+        
         df = self.el_df
         while key not in pd.unique(df[mesh_prop]):
             self.mesh_information(mesh_prop)
@@ -1735,7 +1755,7 @@ class Mesh:
             #
             # passsing to submesh only a part of data frame which correspond to the submesh
             elem_dataframe_i = elem_dataframe.loc[groups_dict[key],:]
-            submesh = SubMesh(key, sub_num_of_elem, elem_dataframe_i, parent)
+            submesh = SubMesh(key, sub_num_of_elem, elem_dataframe_i, parent, groups_dict[key])
             self.groups[key] = submesh
             self.__last_tag__ = group_type
 
@@ -1753,10 +1773,42 @@ class Mesh:
             self.split_in_groups(tag)
             
         try:
-            self.domain_dict[value] = self.groups[value]
-            return self.groups[value]
+            domain = self.groups[value]            
+            return domain
+        
         except:
             print("Please select a valid key value")
+
+
+    def set_domain(self,tag,value):
+        ''' This function returns a submeh obj with a subset of the mesh based on tag 
+        and value. Also it is possible to specify a direction, which is great for boundary conditions
+        '''
+        
+        if not(self.groups): 
+            self.split_in_groups(tag)
+            self.__last_tag__ = tag
+        
+        elif self.__last_tag__ != tag:
+            self.split_in_groups(tag)
+            
+        try:
+            domain = self.groups[value]
+            self.domain_dict[value] = self.groups[value]
+            
+            # creating elements dictionaty of the domain
+            elem_start_index = domain.parent_mesh.node_idx
+            elem_last_index = len(domain.elem_dataframe.columns)
+            elem_connec = domain.elem_dataframe.iloc[:,elem_start_index:elem_last_index]
+            elem_connec = elem_connec.dropna(1) # removing columns with NaN
+            elem_connec = elem_connec.astype(int) # convert all to int
+            self.elements_dict = elem_connec
+            domain.parent_mesh = copy.deepcopy(self) # update parent mesh
+            return domain
+        
+        except:
+            print("Please select a valid key value")
+
 
 
 
@@ -1765,16 +1817,16 @@ class SubMesh():
     ''' The SubMesh is a class which provides a easy data structure for dealing 
     with subsets of the global mesh
     '''
-    def __init__(self,t,num_of_elem,elem_dataframe=None,parent_mesh=None):
+    def __init__(self,t,num_of_elem,elem_dataframe=None,parent_mesh=None, elem_list = None):
     
       
         self.parent_mesh = copy.deepcopy(parent_mesh)
         self.num_of_elem =num_of_elem
         self.key = t
-        #self.elements_list = elem_list
+        self.elements_list = elem_list
         self.elem_dataframe = elem_dataframe
         self.partitions = {}
-        
+        self.__material__ = None
         #self.subset_list()
         
         self.interface_elements_dict = {}
@@ -1792,11 +1844,15 @@ class SubMesh():
         self.create_node_list()
         self.problem_type = 2  # self.problem_type = 2 -> 2D problem / self.problem_type = 3 -> 3D problem; 
         
-    def add_local_mesh(self,local_connectivity, local_node_list,global_to_local_dict = None ):
+    def set_material(self,material):
+        self.__material__ = material
+        
+    def add_local_mesh(self,local_connectivity, local_node_list,global_to_local_dict = None, local_to_global_dict = None ):
         
         self.local_connectivity = local_connectivity
         self.local_node_list = local_node_list
         self.global_to_local_dict = global_to_local_dict
+        self.local_to_global_dict = local_to_global_dict
         
     def subset_list(self):
         
@@ -1808,7 +1864,7 @@ class SubMesh():
     def create_node_list(self):
         node_list = []
         elem_start_index = self.parent_mesh.node_idx
-        elem_last_index = len(self.parent_mesh.el_df.columns)-1
+        elem_last_index = len(self.parent_mesh.el_df.columns)
         
         for node_id in range(elem_start_index, elem_last_index):
             nodes = self.elem_dataframe.iloc[:,node_id].tolist()
@@ -1850,7 +1906,7 @@ class SubMesh():
             self.groups[key].__find_interior_and_interface_element__()
             self.groups[key].__inherit_neumann_nodes__(self.neumann_submesh)
             self.groups[key].__inherit_dirichlet_nodes__(self.dirichlet_submesh)
-        
+            self.groups[key].set_material(self.__material__)
         # find interface nodes
         for sub1_key in self.groups_dict:
             sub1 = self.groups[sub1_key]
@@ -1865,17 +1921,18 @@ class SubMesh():
         sub2_nodes = []
         
         elem_start_index = self.parent_mesh.node_idx
-        elem_last_index = len(self.parent_mesh.el_df.columns)-1
+        elem_last_index = len(self.parent_mesh.el_df.columns)
         elements_dict = self.parent_mesh.el_df.iloc[:,elem_start_index:elem_last_index]
-                            
+        elements_dict = elements_dict.dropna(0).astype(int)  # remove rows with NaN   
+        
         if sub1.neighbor_partitions and not(sub1_key in sub2.interface_nodes_dict.keys()):    
             print('Extract interface node from sub_%i and sub_%i' %(sub1_key,sub2_key))
             
             for elem in sub1.interface_elements_dict[sub2_key]:
-                nodes1 = list(elements_dict.iloc[elem])
+                nodes1 = list(elements_dict.loc[elem])
                 sub1_nodes.extend(nodes1)
             for elem in sub2.interface_elements_dict[sub1_key]:
-                nodes2 = list(elements_dict.iloc[elem])
+                nodes2 = list(elements_dict.loc[elem])
                 sub2_nodes.extend(nodes2)
             
             # exclud duplicated nodes
@@ -1884,7 +1941,6 @@ class SubMesh():
             
             for node in sub1_nodes:
                 if node in sub2_nodes:
-                    node = int(node)
                     try:
                         sub1.interface_nodes_dict[sub2_key].append(node)
                         sub2.interface_nodes_dict[sub1_key].append(node)
@@ -1961,11 +2017,15 @@ class Submesh_Boundary():
         
         if typeBC == 'neumann':
             self.neumann_obj = []
+            elem_start_index = self.submesh.parent_mesh.node_idx
+            elem_last_index = len(self.submesh.elem_dataframe.columns)
+            elem_connec = self.submesh.elem_dataframe.iloc[:,elem_start_index:elem_last_index]
+            elem_connec = elem_connec.dropna(1) # removing columns with NaN
             for elem_key in self.elements_list: 
                 
-                self.connectivity.append(np.array(self.submesh.parent_mesh.elements_dict[elem_key]))
-                elem_gmsh_key = self.submesh.parent_mesh.elements_type_dict[elem_key]
-                elem_type = gmsh2amfe_elem_dict[elem_gmsh_key]
+                self.connectivity.append(np.array(elem_connec.loc[elem_key]))
+                #elem_gmsh_key = self.submesh.parent_mesh.elements_type_dict[elem_key]
+                elem_type = self.submesh.elem_dataframe['el_type'].loc[elem_key]
                 
                 elem_neumann_class_dict = copy.deepcopy(amfe_mesh.element_boundary_class_dict[elem_type])
                 elem_neumann_class_dict.__init__(val, direction)

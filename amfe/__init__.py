@@ -36,6 +36,12 @@ from .structural_dynamics import *
 # Commented out as a dill dependency is required only here
 from .num_exp_toolbox import *
 
+#FETI solver stuff
+from .feti_solver import *
+
+#Import plot library 
+from .plotmesh import * 
+
 # from .hyper_red import *
 
-__author__ = 'Johannes Rutzmoser, Fabian Gruber'
+__author__ = 'Johannes Rutzmoser, Fabian Gruber, Guilherme Jenovencio'

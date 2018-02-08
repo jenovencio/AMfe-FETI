@@ -38,6 +38,8 @@ class MechanicalSystem():
         Class handling the assembly.
     dirichlet_class : instance of DirichletBoundary
         Class handling the Dirichlet boundary conditions.
+    domain : instance of SubMesh class
+        Class handling the Subdomains for FETI solver.
     T_output : list of floats
         List of timesteps saved.
     u_output : list of ndarrays
@@ -82,7 +84,7 @@ class MechanicalSystem():
         self.stress = None
         self.strain = None
         self.iteration_info = np.array([])
-
+        self.domain = []
         # instantiate the important classes needed for the system:
         self.dirichlet_class = DirichletBoundary(np.nan)
         
@@ -168,11 +170,12 @@ class MechanicalSystem():
         '''       
         try:
             self.mesh_class.load_group_to_mesh(key, material, mesh_prop)
-            submesh = self.mesh_class.get_submesh(mesh_prop,key)
+            submesh = self.mesh_class.set_domain(mesh_prop,key)
+            submesh.set_material(material)
             self.no_of_dofs_per_node =self.mesh_class.no_of_dofs_per_node
             self.dirichlet_class.no_of_unconstrained_dofs = self.mesh_class.no_of_dofs
             self.assembly_class.preallocate_csr()
-        
+            self.domain = submesh
         except:
             raise('Please make sure use have a mesh object in the .mesh_class variable')
             
