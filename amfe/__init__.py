@@ -12,7 +12,7 @@ developed and maintained at the Chair for Applied Mechanics,
 Technical University of Munich.
 
 Authors:
-Johannes Rutzmoser, Fabian Gruber
+Christian Meyer, Christopher Lerch, Johannes Rutzmoser, Fabian Gruber
 """
 from __future__ import absolute_import
 
@@ -25,6 +25,9 @@ from .mechanical_system import *
 from .mesh import *
 from .solver import *
 from .tools import *
+
+# Linalg submodule
+from .linalg import *
 
 # Reduction stuff
 from .reduced_basis import *
@@ -43,5 +46,5 @@ from .feti_solver import *
 from .plotmesh import * 
 
 # from .hyper_red import *
+__author__ = 'Christian Meyer, Christopher Lerch, Guilherme Jenovencio, Johannes Rutzmoser, Fabian Gruber'
 
-__author__ = 'Johannes Rutzmoser, Fabian Gruber, Guilherme Jenovencio'

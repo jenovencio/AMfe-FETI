@@ -44,8 +44,9 @@ class test_mechanical_system(unittest.TestCase):
         my_system1.apply_dirichlet_boundaries(10, 'y')
         
 
-        my_system1.apply_neumann_boundaries(12, 1E6, 'normal', lambda t: t)
-        amfe.solve_linear_displacement(my_system1)
+        my_system1.apply_neumann_boundaries(12, 1E6, 'normal')
+        s1 = amfe.LinearStaticsSolver(my_system1)
+        s1.solve()
         u1 = my_system1.u_output[1]
         
         #--------------------------------------------------------------------
@@ -60,10 +61,11 @@ class test_mechanical_system(unittest.TestCase):
         my_system.set_domain(11,my_material)
         my_system.apply_dirichlet_boundaries(9, 'x')
         my_system.apply_dirichlet_boundaries(10, 'y')
-        my_system.apply_neumann_boundaries(12, 1E6, 'normal', lambda t: t)
+        my_system.apply_neumann_boundaries(12, 1E6, 'normal')
         
 
-        amfe.solve_linear_displacement(my_system)
+        s2 = amfe.LinearStaticsSolver(my_system)
+        s2.solve()
         u2 = my_system.u_output[1]        
         
         error = np.linalg.norm([u2-u1])

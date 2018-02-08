@@ -67,7 +67,9 @@ class test_feti_solver(unittest.TestCase):
                 feti_disp = my_system.u_output[1]
         
                 my_system2 = copy.deepcopy(my_system)
-                amfe.solve_linear_displacement(my_system2)
+                s = amfe.LinearStaticsSolver(my_system2)
+                amfe.LinearStaticsSolver(my_system)
+                s.solve()
                 amfe_disp = my_system2.u_output[1]
         
                 self.assertAlmostEquals(amfe_disp.any(),feti_disp.any())

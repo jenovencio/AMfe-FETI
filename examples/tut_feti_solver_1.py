@@ -57,7 +57,8 @@ residual = amfe.FetiSolver.linear_static(my_system)
 #-----------------------------------------------------------------------------
 
 my_system2 = copy.deepcopy(my_system)
-amfe.solve_linear_displacement(my_system2)
+s = amfe.LinearStaticsSolver(my_system2)
+s.solve()
 
 
 #-----------------------------------------------------------------------------
