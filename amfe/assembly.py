@@ -299,7 +299,17 @@ class Assembly():
         [np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*node_id)
                    for node_id in elements], dtype=int).reshape(-1)
          for elements in connectivity]
-
+        
+        # creating an id_matrix for mapping nodes to degress of freedom
+        self.id_matrix = []
+        dof_count = 0
+        for i in range(self.mesh.no_of_nodes):
+            local_list =  []
+            for local_dof in range(no_of_dofs_per_node):
+                local_list.append(dof_count)
+                dof_count +=1
+            self.id_matrix.append(local_list)        
+    
         self.neumann_indices = \
         [np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*i)
                    for i in nodes], dtype=int).reshape(-1)
@@ -310,7 +320,7 @@ class Assembly():
         self.elements_on_node = np.bincount(nodes_vec)
 
 
-    def assemble_k_and_f(self, u, t):
+    def assemble_k_and_f(self, u=None, t=0):
         '''
         Assembles the stiffness matrix of the given mesh and element.
 
@@ -352,6 +362,8 @@ class Assembly():
             # K_csr[indices, indices] += K
             fill_csr_matrix(K_csr.indptr, K_csr.indices, K_csr.data, K, indices)
 
+        self.stiffness = K_csr
+        self.internal_force = f_glob
         return K_csr, f_glob
 
 
@@ -421,6 +433,7 @@ class Assembly():
             f_glob[indices] += f
             fill_csr_matrix(K_csr.indptr, K_csr.indices, K_csr.data, K, indices)
 
+        self.force = np.matrix(f_glob).T
         return K_csr, f_glob
 
     def assemble_k_f_S_E(self, u, t):
