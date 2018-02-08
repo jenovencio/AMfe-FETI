@@ -6,7 +6,7 @@ Created on Thu Feb  8 15:17:42 2018
 """
 
 import amfe
-
+import matplotlib.pyplot as plt
 
 msh_dict = {}
 msh_dict[0] = amfe.amfe_dir('meshes/test_meshes/Geom3.msh')
@@ -33,12 +33,12 @@ m.split_in_groups()
 
 # plotting boundary elements
 amfe.plot_boundary_1d(m)
-plt.show()
+
 
 
 # plotting mesh
 amfe.plot_submesh(m.groups[domain_id[mesh_id]])
-plt.show()
+
 
 # setting main domain for FE calculation
 domain = m.set_domain('phys_group', domain_id[mesh_id])
@@ -46,4 +46,4 @@ domain.split_in_partitions()
 amfe.plot_domain(domain)
 
 
-
+plt.show()

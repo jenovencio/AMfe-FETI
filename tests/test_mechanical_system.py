@@ -57,10 +57,7 @@ class test_mechanical_system(unittest.TestCase):
         my_system = amfe.MechanicalSystem()
         my_system.set_mesh_obj(my_mesh)
 
-        my_system.set_domain({'phys_group':11,'partition_id':1},my_material)
-        my_system.set_domain({'phys_group':11,'partition_id':2},my_material)
-        my_system.set_domain({'phys_group':11,'partition_id':3},my_material)
-    
+        my_system.set_domain(11,my_material)
         my_system.apply_dirichlet_boundaries(9, 'x')
         my_system.apply_dirichlet_boundaries(10, 'y')
         my_system.apply_neumann_boundaries(12, 1E6, 'normal', lambda t: t)

@@ -16,7 +16,7 @@ import amfe
 
 
 mshfile = amfe.amfe_dir('meshes/test_meshes/3_partition_pressure_corner.msh')
-
+my_material = amfe.KirchhoffMaterial(E=210E9, nu=0.3, rho=7.86E3, plane_stress=True, thickness=0.1)
 
 
 # Load phys_group to a mesh
