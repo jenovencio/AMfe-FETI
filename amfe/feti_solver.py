@@ -429,10 +429,14 @@ class FETIsubdomain(Assembly):
         else:
             print('Not implemented')
             
-    def insert_dirichlet_boundary_cond(self):
+    def insert_dirichlet_boundary_cond(self,K=None,f=None):
         
-        K = self.stiffness
-        f = self.force
+        if K is None:
+            K = self.stiffness
+        
+        if f is None:
+            f = self.force
+            
         self.dirichlet_dof = []
         dirichlet_stiffness = 1.0E10
                 
@@ -471,8 +475,9 @@ class FETIsubdomain(Assembly):
                 
             else:
                 print('Dirichlet boundary condition >0 is not yet support!')
+                return None
                 
-                
+        return K,f                
                 
 
         
@@ -910,3 +915,32 @@ class Master():
         
         return d_hat
             
+class Boundary():
+    def __init__(self,submesh_obj,val = 0, direction = 'normal', typeBC = 'neumann'):
+        
+        amfe_mesh = amfe.Mesh()
+        self.submesh = submesh_obj 
+        self.elements_list = submesh_obj.elements_list
+        self.neumann_obj = []
+        self.value = val
+        self.direction = direction
+        self.type = typeBC
+        # make a deep copy of the element class dict and apply the material
+        # then add the element objects to the ele_obj list
+        
+        self.connectivity = []
+        object_series = []
+        
+        if typeBC == 'neumann':
+            for elem_key in self.elements_list: 
+                
+                self.connectivity.append(np.array(self.submesh.parent_mesh.elements_dict[elem_key]))
+                elem_gmsh_key = self.submesh.parent_mesh.elements_type_dict[elem_key]
+                elem_type = gmsh2amfe_elem_dict[elem_gmsh_key]
+                
+                elem_neumann_class_dict = copy.deepcopy(amfe_mesh.element_boundary_class_dict[elem_type])
+                elem_neumann_class_dict.__init__(val, direction)
+                
+                object_series.append(elem_neumann_class_dict)
+            #object_series = elements_df['el_type'].map(ele_class_dict)
+            self.neumann_obj.extend(object_series)  			

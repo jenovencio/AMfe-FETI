@@ -6,10 +6,52 @@
 """Module for handling the Dirichlet boundary. """
 
 __all__ = ['DirichletBoundary',
-           ]
+           'Boundary']
 
 import numpy as np
 import scipy as sp
+from .mesh import *
+import copy
+
+gmsh2amfe_elem_dict = {}
+gmsh2amfe_elem_dict[4] = 'Tet4'
+gmsh2amfe_elem_dict[11] = 'Tet10'
+gmsh2amfe_elem_dict[5] = 'Hexa8'
+gmsh2amfe_elem_dict[17] = 'Hexa20'
+gmsh2amfe_elem_dict[9] = 'Tri6'
+gmsh2amfe_elem_dict[2] = 'Tri3'
+gmsh2amfe_elem_dict[21] = 'Tri10'
+gmsh2amfe_elem_dict[3] = 'Quad4'
+gmsh2amfe_elem_dict[16] = 'Quad8'
+gmsh2amfe_elem_dict[6] = 'Prism6'
+gmsh2amfe_elem_dict[1] = 'straight_line'
+gmsh2amfe_elem_dict[8] = 'quadratic_line'
+gmsh2amfe_elem_dict[15] = 'point'
+
+elem_dof = {}
+elem_dof['Tet4'] = 3
+elem_dof['Tet10'] = 3
+elem_dof['Hexa8'] = 3
+elem_dof['Hexa20'] = 3
+elem_dof['Tri6'] = 2
+elem_dof['Tri3'] = 2
+elem_dof['Tri10'] = 2
+elem_dof['Quad4'] = 2
+elem_dof['Quad8'] = 2
+elem_dof['Prism6'] = 3
+elem_dof['straight_line'] = 2
+elem_dof['quadratic_line'] = 2
+elem_dof['point'] = 1
+
+dirichlet_dict = {}
+dirichlet_dict['x'] = [0]
+dirichlet_dict['y'] = [1]
+dirichlet_dict['z'] = [2]
+dirichlet_dict['xy'] = [0,1]
+dirichlet_dict['xz'] = [0,2]
+dirichlet_dict['yz'] = [1,2]
+dirichlet_dict['xyz'] = [0,1,2]
+
 
 
 class DirichletBoundary():
@@ -338,3 +380,35 @@ class DirichletBoundary():
             B = self.B
         return B.dot(vec)
 
+
+class Boundary():
+    
+    def __init__(self,submesh_obj,val = 0, direction = 'normal', typeBC = 'neumann'):
+        
+        amfe_mesh = Mesh()
+        self.submesh = submesh_obj 
+        self.elements_list = submesh_obj.elements_list
+        self.neumann_obj = []
+        self.value = val
+        self.direction = direction
+        self.type = typeBC
+        # make a deep copy of the element class dict and apply the material
+        # then add the element objects to the ele_obj list
+        
+        self.connectivity = []
+        object_series = []
+        
+        if typeBC == 'neumann':
+            for elem_key in self.elements_list: 
+                
+                self.connectivity.append(np.array(self.submesh.parent_mesh.elements_dict[elem_key]))
+                elem_gmsh_key = self.submesh.parent_mesh.elements_type_dict[elem_key]
+                #elem_type = gmsh2amfe_elem_dict[elem_gmsh_key]
+                elem_type = elem_gmsh_key
+                
+                elem_neumann_class_dict = copy.deepcopy(amfe_mesh.element_boundary_class_dict[elem_type])
+                elem_neumann_class_dict.__init__(val, direction)
+                
+                object_series.append(elem_neumann_class_dict)
+            #object_series = elements_df['el_type'].map(ele_class_dict)
+            self.neumann_obj.extend(object_series)                  
