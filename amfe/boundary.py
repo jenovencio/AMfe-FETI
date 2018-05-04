@@ -387,11 +387,12 @@ class Boundary():
         
         amfe_mesh = Mesh()
         self.submesh = submesh_obj 
-        self.elements_list = submesh_obj.elements_list
-        self.neumann_obj = []
+        self.elements_list = submesh_obj.elem_dataframe.index.tolist()
+        
         self.value = val
         self.direction = direction
         self.type = typeBC
+        
         # make a deep copy of the element class dict and apply the material
         # then add the element objects to the ele_obj list
         
@@ -399,16 +400,20 @@ class Boundary():
         object_series = []
         
         if typeBC == 'neumann':
+            self.neumann_obj = []
+            elem_start_index = self.submesh.parent_mesh.node_idx
+            elem_last_index = len(self.submesh.elem_dataframe.columns)
+            elem_connec = self.submesh.elem_dataframe.iloc[:,elem_start_index:elem_last_index]
+            elem_connec = elem_connec.dropna(1) # removing columns with NaN
             for elem_key in self.elements_list: 
                 
-                self.connectivity.append(np.array(self.submesh.parent_mesh.elements_dict[elem_key]))
-                elem_gmsh_key = self.submesh.parent_mesh.elements_type_dict[elem_key]
-                #elem_type = gmsh2amfe_elem_dict[elem_gmsh_key]
-                elem_type = elem_gmsh_key
+                self.connectivity.append(np.array(elem_connec.loc[elem_key]))
+                #elem_gmsh_key = self.submesh.parent_mesh.elements_type_dict[elem_key]
+                elem_type = self.submesh.elem_dataframe['el_type'].loc[elem_key]
                 
                 elem_neumann_class_dict = copy.deepcopy(amfe_mesh.element_boundary_class_dict[elem_type])
                 elem_neumann_class_dict.__init__(val, direction)
                 
                 object_series.append(elem_neumann_class_dict)
             #object_series = elements_df['el_type'].map(ele_class_dict)
-            self.neumann_obj.extend(object_series)                  
+            self.neumann_obj.extend(object_series)           
