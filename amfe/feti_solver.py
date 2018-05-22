@@ -317,7 +317,8 @@ class FETIsubdomain(Assembly):
 		self.local_interface_nodes_dict = {}
 		self.lambda_global_indices = []
 		self.local_interface_dofs_dict = {}
-		self.local_interior_dofs_dict = {}
+		self.local_interface_dofs_list = []
+		self.local_interior_dofs_list = {}
 		self.num_of_interface_dof = 0
 		
 		for neighbor_subdomain_key in self.submesh.interface_nodes_dict:
@@ -337,7 +338,8 @@ class FETIsubdomain(Assembly):
 				self.local_interface_nodes_dict[neighbor_subdomain_key].append(local_node_id)
 				node_dof_list = self.id_matrix[local_node_id]
 				self.local_interface_dofs_dict[neighbor_subdomain_key].extend(node_dof_list)
-						
+				self.local_interface_dofs_list.extend(node_dof_list)		
+
 				for j,dof in enumerate(node_dof_list):					  
 					lambda_indice = node_id*self.submesh.problem_type+j
 					self.lambda_global_indices.append(lambda_indice)
@@ -345,8 +347,9 @@ class FETIsubdomain(Assembly):
 				
 				self.num_of_interface_dof += count
 			
-			interface_dofs = set(self.local_interface_dofs_dict[neighbor_subdomain_key])
-			self.local_interior_dofs_dict[neighbor_subdomain_key] = list(all_dofs.difference(interface_dofs))
+			interface_dofs = set(self.local_interface_dofs_list)
+			self.local_interface_dofs_list = list(interface_dofs)
+			self.local_interior_dofs_list = list(all_dofs.difference(interface_dofs))
 		
 		return None
 
@@ -617,10 +620,46 @@ class FETIsubdomain(Assembly):
 				return None
 				
 		return K,f				  
-				
-
+	def assemble_primal_schur_complement(self,type='schur'):
 		
 
+		try:
+			ii_id = self.local_interior_dofs_list
+			bb_id = self.local_interface_dofs_list
+		except:
+			self.create_interface_and_interior_dof_dicts()
+			ii_id = self.local_interior_dofs_list
+			bb_id = self.local_interface_dofs_list
+			
+		num_intetior_dof = len(ii_id)
+		K = self.stiffness
+		Block_zero = np.zeros([num_intetior_dof,num_intetior_dof])
+		Kbb = K[bb_id,:][:,bb_id].todense()
+		Kii = K[ii_id,:][:,ii_id].todense()
+		Kbi = K[bb_id,:][:,ii_id].todense()
+		Kib = Kbi.T
+		
+		if type=='lumped':
+			Sbb = Kbb
+		
+		elif type=='superlumped':
+			Sbb = np.diag(Kbb.diagonal().A1)
+			
+		elif type=='schur': 
+			Kii_inv = np.linalg.inv(Kii)
+			Sbb = Kbb - Kbi.dot(Kii_inv).dot(Kib)
+		
+		elif type=='lumpedschur':
+			diag_inv = 1.0/Kii.diagonal()
+			Kii_inv = np.diag(diag_inv .A1)
+			Sbb = Kbb - Kbi.dot(Kii_inv).dot(Kib)
+		
+		n_dof = self.mesh.no_of_dofs
+		C = np.matrix(np.zeros([n_dof,n_dof]))
+		#C = sparse.bmat([[Block_zero, None], [None, Sbb]])
+		C[np.ix_(bb_id, bb_id)] = Sbb
+		return C
+		
 class Master():
 	def __init__(self):
 	

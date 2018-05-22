@@ -1725,13 +1725,14 @@ class Mesh:
             elem_group_series = elem_dataframe[group_type]
         
         else:
-            print('WARNING. Plese provide a elem_group_series for split mesh in grops.')
+            print('WARNING. Please provide a elem_group_series for split mesh in grops.')
             return None
     
         # creating local dictionary for grouping
         groups_dict = {}        
         for elem, group_id in elem_group_series.iteritems():
-            if type(group_id) == int:
+            if group_id is not None:
+                group_id = int(group_id)
                 try:
                     groups_dict[group_id].append(elem)
                     
