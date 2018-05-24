@@ -13,11 +13,13 @@ import os
 import copy
 import h5py
 import numpy as np
+import pandas as pd
 from scipy.sparse import bmat
 
 from .mesh import Mesh
 from .assembly import Assembly
 from .boundary import DirichletBoundary
+from .boundary import Boundary
 from .solver import *
 
 
@@ -28,7 +30,8 @@ __all__ = [
     'ReducedSystemStateSpace',
     'reduce_mechanical_system',
     'convert_mechanical_system_to_state_space',
-    'reduce_mechanical_system_state_space'
+    'reduce_mechanical_system_state_space',
+    'MechanicalAssembly'
 ]
 
 
@@ -1065,6 +1068,199 @@ def reduce_mechanical_system_state_space(
     red_sys.x_red_output = []
     red_sys.E_constr = None
     return red_sys
+
+
+class MechanicalAssembly(MechanicalSystem):
+    '''
+    Master class is inherited from mechanical systems.
+    The goal is to handle multidomain "multiple meshes"
+    with multiple constraints intra and extra domaina
+   
+    '''
+
+    domain_counter = 1
+
+    def __init__(self):
+        super(MechanicalSystem, self).__init__()
+
+        self.domain_dict = {}
+        self.assembly_dict = {}
+        self.no_of_dofs_per_node_dict = {}
+
+    def append_domain(self, submesh, material, key=None):
+
+        if key is None:
+            key =  MechanicalAssembly.domain_counter 
+            MechanicalAssembly.domain_counter += 1
+
+        
+        submesh.set_material(material)
+        self.domain_dict[key] = submesh
+
+        return self.domain_dict
+    
+    def get_domain(self, key):
+        return self.domain_dict[key]
+
+    def get_submesh(self,domain_key,group_key,group_tag='phys_group'):
+        ''' This function return a submesh from a domain and a phys_group
+
+        parameters:
+            key : int
+                Domain key
+            key_group : int
+                key of a mesh group
+            group_tag : str
+                string with the name of the group to be selected
+
+        return 
+            submesh : SubMesh obj
+                submesh of a domain and group
+
+        '''
+        domain = self.get_domain(key)
+        return domain.get_submesh(group_tag,group_key)
+
+    def apply_dirichlet_boundaries(self, key, submesh, value, direction='xyz'):
+        ''' Function that apply Dirichlet boundary condition to a specific
+        domain based on the Key of the domain.
+
+        parameters:
+            key : int
+                key of the domain_dict which contains multiple domains
+            submesh : SubMesh obj
+                SubMesh object with elements where the boundary cond. will be applied
+            value : float
+                value of the boundary condition, only 0.0 is availible
+            dir : str
+                direction of the boundary condition
+
+        return:
+            new domain_dict with boundary condition in the domain key
+
+
+        '''
+
+        
+        if abs(value) == 0.0:
+            domain = self.get_domain(key)
+            dir_sub = Boundary(submesh,value,direction,'dirichlet')
+            domain.append_bondary_condition(dir_sub)
+            return self.domain_dict
+
+        else:
+            raise('Dirichlet boundary cond. difference from 0.0 is not supported')
+
+    def apply_neumann_boundaries(self, key, submesh, value, direction='normal'):
+            
+            domain = self.get_domain(key)
+            new_sub = Boundary(submesh,value,direction)
+            domain.append_bondary_condition(new_sub)
+
+            return self.domain_dict
+    
+    def create_assembly_dataframe(self):
+        ''' This function create a dataframe including all
+        domain in self.domain_dict
+        '''
+        
+        
+        count = 0
+        max_node_id = 0
+        max_num_of_partitions = 0
+        for key in self.domain_dict:
+            domain = self.get_domain(key)
+            df = copy.deepcopy(domain.parent_mesh.el_df)
+            node_idx = domain.parent_mesh.node_idx      
+            
+            # convert all node numbers to integers
+            df.iloc[:,node_idx  + 1:] = df.iloc[:,node_idx  + 1:].fillna(-1)
+            df.iloc[:,node_idx  + 1:] = df.iloc[:,node_idx  + 1:].astype(np.int64)
+
+            # renumbering nodes
+            df.iloc[:,node_idx  + 1:] += max_node_id
+            df.iloc[:,node_idx  + 1:] = df.iloc[:,node_idx  + 1:].replace(-1 + max_node_id, np.nan)
+
+            # add extra column with domain
+            df.insert(node_idx ,'domain',key)
+            max_node_id += domain.parent_mesh.no_of_nodes
+
+            # renumbering partitions and it neighbors
+            num_of_partitions = df['partition_id'].max()
+            df['partition_id'] += max_num_of_partitions
+
+            
+            # apply renumbering in neighbors list
+            for j,nei_list in enumerate(df['partitions_neighbors']):
+                if nei_list is not None:
+                    df['partitions_neighbors'].iloc[j] = list(np.array(nei_list) - max_num_of_partitions)
+
+            max_num_of_partitions += num_of_partitions
+
+            if count==0:
+                self.el_df = copy.deepcopy(df)
+                self.nodes = copy.deepcopy(domain.parent_mesh.nodes)
+                count = 1
+            else:
+
+                self.el_df = self.el_df.append(df)
+                self.nodes = np.vstack([self.nodes,domain.parent_mesh.nodes])
+
+        self.node_idx = node_idx
+        return self.el_df
+        
+
+    def add_linear_equatity_node_const(self, const_obj1, const_obj2, value=0.0, dof_tag = 'xyz'):
+        ''' This function add constraint objects defined in two domain and
+        in the mechanical assembly:
+
+        decouple system
+        K1 u1 = f1
+        K2 uf = f2
+
+        couple system with node constraint
+
+        K1 u1 = f1 + B1*lambda
+        K2 uf = f2 + B2*lambda
+        B1 + B2 = value
+
+        arguments:
+        
+            const_obj1 : as Constraint class
+                constaint object with a list of nodes in a domain
+
+            const_obj2 : as Constraint class
+                constaint object with a list of nodes in a domain
+
+            value : float or list
+                float or list with values of the constraint
+
+            dof_tag: str or list
+                str or list with the DOFs to be considered for the constraint
+        '''
+
+        # gaching string dof_tag to local_dof_list
+        if isinstance(dof_tag,str):
+            local_dof_list = [0,0,0]
+            tag_list = ['x','y','z']
+            for i,tag in enumerate(tag_list):
+                if tag in dof_tag:
+                    local_dof_list[i]
+        else:
+            local_dof_list = dof_tag
+
+        return None
+        
+
+
+
+
+    
+
+
+
+
+
 
 
 # This class is not integrated in AMfe yet.

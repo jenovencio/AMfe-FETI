@@ -1861,7 +1861,23 @@ class SubMesh():
         only the rows at the self.elements_list
         '''
         self.elem_dataframe = self.elem_dataframe.loc[self.elements_list,:]
-        
+    
+    def get_submesh(self,tag,value):
+        ''' Get a submesh from parent_mesh based on tag and key value
+
+        paramenters:
+            tag : str
+                string with group label
+            value : int
+                value of the group label to be select
+
+        return
+            SubMesh : obj
+                parent SubMesh object based on tag and value
+
+        '''
+        return self.parent_mesh.get_submesh(tag,value)
+
     def create_node_list(self):
         node_list = []
         elem_start_index = self.parent_mesh.node_idx
