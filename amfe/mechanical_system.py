@@ -1086,6 +1086,13 @@ class MechanicalAssembly(MechanicalSystem):
         self.domain_dict = {}
         self.assembly_dict = {}
         self.no_of_dofs_per_node_dict = {}
+        self.domain_key_list = []
+        self.bound_interface_constraint_list = []
+        self.global_to_local_node_dict = {}
+        self.local_to_global_node_dict = {}
+        self.last_column_id_in_dataframe = None
+        self.neumann_submesh = []
+        self.dirichlet_submesh = []
 
     def append_domain(self, submesh, material, key=None):
 
@@ -1093,9 +1100,9 @@ class MechanicalAssembly(MechanicalSystem):
             key =  MechanicalAssembly.domain_counter 
             MechanicalAssembly.domain_counter += 1
 
-        
+        self.domain_key_list.append(key)
         submesh.set_material(material)
-        self.domain_dict[key] = submesh
+        self.domain_dict[key] = copy.deepcopy(submesh)
 
         return self.domain_dict
     
@@ -1118,10 +1125,66 @@ class MechanicalAssembly(MechanicalSystem):
                 submesh of a domain and group
 
         '''
-        domain = self.get_domain(key)
-        return domain.get_submesh(group_tag,group_key)
+        domain = self.get_domain(domain_key)
+        submesh = domain.parent_mesh.get_submesh(group_tag,group_key)
+        submesh.split_in_partitions('domain')
 
-    def apply_dirichlet_boundaries(self, key, submesh, value, direction='xyz'):
+        return submesh.groups[domain_key]
+
+    def update_global_system(self):
+        ''' This function create a new data frame
+        with the multiple domains, updates domains
+        meshes and submeshes which can be useful for
+        global assembly methods.
+        '''
+        self.create_assembly_dataframe()
+        self.create_mesh_obj()
+        self.update_submesh_with_global_mesh()
+        self.assembly_class = Assembly(self.mesh_class)
+
+        for key in self.domain_key_list:
+            domain = self.get_domain(key)
+            domain.__material__
+            self.mesh_class.load_group_to_mesh(key, domain.__material__ , 'domain')
+
+            self.no_of_dofs_per_node += self.mesh_class.no_of_dofs_per_node
+        
+        self.assembly_class.preallocate_csr()
+
+
+    def create_mesh_obj(self):
+        ''' this method create a global mesh object based on 
+        self.domain_dict
+
+        return
+            mesh_obj : Mesh object
+        '''
+        self.mesh_class = Mesh()
+        self.mesh_class.el_df = self.el_df
+        self.mesh_class.node_idx = self.node_idx
+        self.mesh_class.no_of_dofs_per_node = self.no_of_dofs_per_node 
+        self.mesh_class.nodes = self.nodes
+        
+        return self.mesh_class
+
+    def update_submesh_with_global_mesh(self):
+        ''' This method update the submesh in domain_dict
+        with the new global mesh generate by create_mesh_obj
+        '''
+        global_index = self.el_df.index.tolist()
+        for key in self.domain_key_list:
+            domain = self.get_domain(key)
+            domain.parent_mesh = copy.deepcopy(self.mesh_class)
+            try:
+                subset = self.el_df['domain'] == key
+                global_index = np.array([i for i,bool in enumerate(subset) if bool])
+                domain.elements_list = list(global_index[domain.elements_list])
+            except:
+                None
+            domain.subset_list() # update elements
+            domain.create_node_list() # updates nodes
+
+    def apply_dirichlet_boundaries(self, submesh, value, direction='xyz'):
         ''' Function that apply Dirichlet boundary condition to a specific
         domain based on the Key of the domain.
 
@@ -1143,21 +1206,27 @@ class MechanicalAssembly(MechanicalSystem):
 
         
         if abs(value) == 0.0:
-            domain = self.get_domain(key)
+
+
+            # Objecs for FETI method
+            #domain = self.get_domain(key)
             dir_sub = Boundary(submesh,value,direction,'dirichlet')
-            domain.append_bondary_condition(dir_sub)
-            return self.domain_dict
+            #domain.append_bondary_condition(dir_sub)
+
+            self.dirichlet_submesh.append(dir_sub)
+            return self.dirichlet_submesh
 
         else:
             raise('Dirichlet boundary cond. difference from 0.0 is not supported')
 
-    def apply_neumann_boundaries(self, key, submesh, value, direction='normal'):
+    def apply_neumann_boundaries(self, submesh, value, direction='normal'):
             
-            domain = self.get_domain(key)
+            #domain = self.get_domain(key)
             new_sub = Boundary(submesh,value,direction)
-            domain.append_bondary_condition(new_sub)
+            #domain.append_bondary_condition(new_sub)
 
-            return self.domain_dict
+            self.neumann_submesh.append(new_sub)
+            return self.neumann_submesh
     
     def create_assembly_dataframe(self):
         ''' This function create a dataframe including all
@@ -1168,34 +1237,53 @@ class MechanicalAssembly(MechanicalSystem):
         count = 0
         max_node_id = 0
         max_num_of_partitions = 0
-        for key in self.domain_dict:
+        max_num_of_elem = 0
+        for key in self.domain_key_list:
             domain = self.get_domain(key)
             df = copy.deepcopy(domain.parent_mesh.el_df)
             node_idx = domain.parent_mesh.node_idx      
             
             # convert all node numbers to integers
-            df.iloc[:,node_idx  + 1:] = df.iloc[:,node_idx  + 1:].fillna(-1)
-            df.iloc[:,node_idx  + 1:] = df.iloc[:,node_idx  + 1:].astype(np.int64)
+            df.iloc[:,node_idx :] = df.iloc[:,node_idx :].fillna(-1)
+            df.iloc[:,node_idx :] = df.iloc[:,node_idx  :].astype(np.int64)
 
             # renumbering nodes
-            df.iloc[:,node_idx  + 1:] += max_node_id
-            df.iloc[:,node_idx  + 1:] = df.iloc[:,node_idx  + 1:].replace(-1 + max_node_id, np.nan)
+            df.iloc[:,node_idx  :] += max_node_id
+            df.iloc[:,node_idx  :] = df.iloc[:,node_idx :].replace(-1 + max_node_id, np.nan)
 
+
+
+            max_node_id += domain.parent_mesh.no_of_nodes
+            if 'partition_id' in df.columns:
+                # renumbering partitions and it neighbors
+                num_of_partitions = df['partition_id'].max()
+                df['partition_id'] += max_num_of_partitions
+
+                # apply renumbering in neighbors list
+                for j,nei_list in enumerate(df['partitions_neighbors']):
+                    if nei_list is not None:
+                        #df['partitions_neighbors'].iloc[j] = list(np.array(nei_list) - max_num_of_partitions)
+                        #df['partitions_neighbors'][j] = list(np.array(nei_list) - max_num_of_partitions)
+                        df.loc[j,('partitions_neighbors')] = list(np.array(nei_list) - max_num_of_partitions)
+            else:
+                num_of_partitions = 1
+                df.insert(node_idx ,'no_of_mesh_partitions', num_of_partitions)
+                df.insert(node_idx + 1,'partition_id', max_num_of_partitions + num_of_partitions)
+                df.insert(node_idx + 2 ,'partitions_neighbors',None)
+                node_idx += 3
+                
+            
+            max_num_of_partitions += num_of_partitions
             # add extra column with domain
             df.insert(node_idx ,'domain',key)
-            max_node_id += domain.parent_mesh.no_of_nodes
 
-            # renumbering partitions and it neighbors
-            num_of_partitions = df['partition_id'].max()
-            df['partition_id'] += max_num_of_partitions
-
+            # renumbering elem
+            df.insert(1 ,'local_idx', df.iloc[:,0].values)
+            num_of_elem = df.iloc[:,0].max()
+            df.iloc[:,0] += max_num_of_elem
             
-            # apply renumbering in neighbors list
-            for j,nei_list in enumerate(df['partitions_neighbors']):
-                if nei_list is not None:
-                    df['partitions_neighbors'].iloc[j] = list(np.array(nei_list) - max_num_of_partitions)
-
-            max_num_of_partitions += num_of_partitions
+            # update max number of elements
+            max_num_of_elem +=num_of_elem
 
             if count==0:
                 self.el_df = copy.deepcopy(df)
@@ -1203,12 +1291,291 @@ class MechanicalAssembly(MechanicalSystem):
                 count = 1
             else:
 
-                self.el_df = self.el_df.append(df)
-                self.nodes = np.vstack([self.nodes,domain.parent_mesh.nodes])
+                self.el_df = self.el_df.append(df, ignore_index=True)
+                self.nodes = np.vstack([self.nodes, copy.deepcopy(domain.parent_mesh.nodes)])
 
-        self.node_idx = node_idx
+        self.node_idx = node_idx + 2
+        self.no_of_dofs_per_node = domain.parent_mesh.no_of_dofs_per_node
+        self.last_column_id_in_dataframe = len(self.el_df.columns)
+
         return self.el_df
         
+    def split_in_partitions(self,group_tag='partition_id'):
+        ''' This methods applies partition to mesh
+        it uses the split_partitions_implemented in Submesh
+        '''
+
+        try:
+            domain = self.domain
+        except:
+            domain = self.update_domain()
+
+        self.groups = {}
+        domain.split_in_partitions(group_tag)
+        self.groups.update(domain.groups)
+
+        return self.groups
+
+    def update_domain(self):
+        ''' create the self.domain variables
+        '''
+        self.update_submesh_with_global_mesh()
+        
+        count = 0
+        for key in self.domain_key_list:
+            domain = self.get_domain(key)
+            if count > 0:
+                elem_dataframe = elem_dataframe.append(domain.elem_dataframe)
+            else:    
+                elem_dataframe = copy.deepcopy(domain.elem_dataframe)
+                count += 1
+        
+        #elem_dataframe = elem_dataframe.reset_index(drop=True)
+        #elem_dataframe = self.el_df
+        
+        key = self.domain_key_list[0]
+        domain = self.get_domain(key)
+        self.elem_dataframe = elem_dataframe
+        domain.elem_dataframe = elem_dataframe
+        domain.neumann_submesh = self.neumann_submesh
+        domain.dirichlet_submesh = self.dirichlet_submesh
+
+        self.update_boundary_submesh()
+
+        self.domain = domain
+        return domain
+
+    def update_boundary_submesh(self):
+        ''' This method updates boundary submeshes based on 
+        new el_df because to renumbering of nodes
+        '''
+
+        
+        elem_start_index = self.node_idx
+        elem_last_index = self.last_column_id_in_dataframe
+        bc_list = [self.neumann_submesh, self.dirichlet_submesh]
+
+        for submesh_item in bc_list:
+            for i,submesh_neu in enumerate(submesh_item):
+                nodes = []
+                for elem in submesh_neu.elements_list:
+                    nodes.extend(list(self.el_df.iloc[elem,elem_start_index:elem_last_index].dropna(0).astype(int)))
+
+                submesh_neu.submesh.parent_mesh = self.mesh_class
+                submesh_neu.submesh.elem_dataframe = self.el_df.iloc[submesh_neu.elements_list,:]
+                submesh_neu.submesh.global_node_list = list(set(nodes))
+                val = submesh_neu.value 
+                direction = submesh_neu.direction
+                typeBC = submesh_neu.type
+            
+                new_submesh = Boundary(submesh_neu.submesh, val, direction, typeBC )
+                submesh_item[i] = new_submesh
+
+
+    def add_bound_interface_constraint(self,submesh1,submesh2):
+        ''' This function connects the nodes from submesh1 on 
+        submesh2
+
+        create a dictionary with constraint pares and
+        add to the self.bound_interface_constraint_list
+        which contains all the constraints
+
+        This constraint can be used for dual or primal assembly
+        
+        parameters:
+            submesh1 : SubMesh obj
+                submesh of the first subdomain 
+            submesh2  : SubMesh obj
+                submesh of the second subdomain 
+
+
+        return 
+            bound_interface_constraint_dict : dict
+                dictionary with interface par, can be used to map global 
+                to local node numbers
+
+        '''
+
+        domain_key_1 = submesh1.elem_dataframe['domain'].iloc[0]
+        domain_key_2 = submesh2.elem_dataframe['domain'].iloc[0]
+
+        elem_interface_1 = []
+        elem_interface_2 = []
+
+
+        partition_key_1, elem_interface_1 = self.find_partition_in_domain_by_elem(domain_key_1,submesh1.elements_list)
+
+        if partition_key_1 is None:
+            print('Not possible to apply Bound Interfaces for the given SubMeshs')
+            return None
+
+        partition_key_2, elem_interface_2 = self.find_partition_in_domain_by_elem(domain_key_2,submesh2.elements_list)
+
+        if partition_key_2 is None:
+            print('Not possible to apply Bound Interfaces for the given SubMeshs')
+            return None
+
+        int_dict = {domain_key_1:submesh1, domain_key_2:submesh2}
+        self.bound_interface_constraint_list.append(int_dict)
+
+        # update dataframe
+        self.update_partitions_neighbors_in_dataframe(elem_interface_1,partition_key_2)
+        self.update_partitions_neighbors_in_dataframe(elem_interface_2,partition_key_1)
+
+        # update nodes in dataframe
+        self.replace_nodes_in_dataframe(submesh1,submesh2)
+
+
+        # update interface_dict in submesh
+        #domain_1 = self.get_domain(domain_key_1)
+        #domain_1.interface_nodes_dict[partition_key_2] = submesh1.global_node_list
+
+        #domain_2 = self.get_domain(domain_key_2)
+        #domain_2.interface_nodes_dict[partition_key_1] = submesh2.global_node_list
+        
+        return int_dict 
+
+    def replace_nodes_in_dataframe(self,submesh1,submesh2):
+        ''' This function replace the nodes in submesh 2 in the dataframe by 
+        nodes in SubMesh 1.
+        This will result that subdomain will share the same indexes 
+        of nodes whith is import for the split method, which generetes partitions
+
+        This method also update the self.global_to_local_node_dict which map
+        old global nodes to new node index
+
+
+        paramenters:
+            submesh1 : SubMesh obj
+                SubmMesh which the nodes will be preserved
+            submesh2 : SubMesh obj
+                SubmMesh which the nodes will be replaced
+
+        return:
+            el_df : Pandas dataframe
+                a new element dataframe
+
+        '''
+
+        tol = 10E-6 # percetange tolerance for node distance
+        
+        for i,elem in enumerate(submesh2.elements_list):
+            nodes_in_2 = list(self.el_df.iloc[elem,self.node_idx:])
+            nodes_in_1 = list(self.el_df.iloc[submesh1.elements_list[i],self.node_idx:])
+            for j,node_id in enumerate(nodes_in_2):
+                if not np.isnan(node_id):
+                    global_node_id = nodes_in_1[j]
+                    
+                    # check node coord
+                    node_coord_1 = self.nodes[global_node_id]
+                    node_coord_2 = self.nodes[node_id]
+
+                    if np.linalg.norm(node_coord_1 - node_coord_2)*np.linalg.norm(node_coord_1)<tol:
+                        nodes_in_2[j] = global_node_id
+                        sucess = True
+                    else:
+                        # try to find global index based on node coord
+                        sucess = False
+                        for k,global_node_id in enumerate(nodes_in_1):
+                            node_coord_1 = self.nodes[global_node_id]
+                            if node_coord_1.all() == node_coord_2.all():
+                                nodes_in_2[k] = global_node_id
+                                sucess = True
+                    if sucess:
+                        self.global_to_local_node_dict[global_node_id] = node_id
+                        self.local_to_global_node_dict[node_id] = global_node_id
+
+            if sucess:
+                self.el_df.iloc[elem,self.node_idx:] = nodes_in_2
+            else:
+                raise('Error to replace nodes. Please reimplement the method to  \
+                        handle unordered interface nodes.')
+
+            # update the remaining columns
+            column_list = list(np.arange(self.node_idx, self.last_column_id_in_dataframe))
+            self.replace_dataframe_columns(column_list,self.local_to_global_node_dict)
+
+            return self.el_df
+
+    def replace_dataframe_columns(self,list_of_column_index,dict_map):
+        ''' This function replace values in the self.el_df based on column_index
+        and old value.
+
+        parameters:
+            column_index : list
+                lsit with number of column index
+            dict_map : dict
+                dict [old_value] = new_value
+                old_value : int or float
+                    old value to be replaced
+                new_value : int or float
+                    new value to replace old value
+
+        return:
+            el_df : pandas dataframe
+                pandas dataframe with new value in column number
+                equal column_index
+
+        '''
+
+        new_df = self.el_df.iloc[:,list_of_column_index].replace(dict_map)
+        self.el_df.iloc[:,list_of_column_index] = new_df
+
+        return self.el_df
+
+    def update_partitions_neighbors_in_dataframe(self,elem_list,partitions_neighbors):
+        ''' update partitions neighbor in dataframe "self.el_df"
+        '''
+        for elem in elem_list:
+            if self.el_df.loc[elem,'partitions_neighbors'] is None:
+                self.el_df.loc[elem,'partitions_neighbors'] = [-partitions_neighbors]
+            else:
+                if -partitions_neighbors not in self.el_df.loc[elem,'partitions_neighbors']:
+                    self.el_df.loc[elem,'partitions_neighbors'].append( -partitions_neighbors)
+
+
+    def find_partition_in_domain_by_elem(self,domain_key,elem_list):
+        ''' This function finds the partition_id of a elem "elem_num"
+        which has nodes that are in a domain which has key "domain_key"
+
+        parameters:
+
+        domain_key : int
+            domain key to look for a partition
+        elem_num : int
+            element number based on self.el_df
+
+        return 
+            either
+                partition_id : int
+                    number of the partition id
+
+                interface_elem_list : list
+                    list of element in the interface
+                
+                when elem has node in domain
+            or
+                None 
+                when elem has no nodes in domain
+
+        '''
+        
+        domain = self.get_domain(domain_key)
+        interface_elem_list = []
+        p_id = None
+
+        for elem_num in elem_list:
+            nodes_in_elem_target = list(self.el_df.iloc[elem_num,self.node_idx :].dropna())
+            for elem in domain.elements_list:
+                nodes_in_domain =  list(self.el_df.iloc[elem,self.node_idx :].dropna().astype(int))
+                if set(nodes_in_elem_target).issubset(nodes_in_domain):
+                    p_id = int(self.el_df.loc[elem,['partition_id']])
+                    self.el_df.loc[elem_num,['partition_id']] = p_id
+                    interface_elem_list.append(elem)
+                    break
+
+        return p_id, interface_elem_list
+
 
     def add_linear_equatity_node_const(self, const_obj1, const_obj2, value=0.0, dof_tag = 'xyz'):
         ''' This function add constraint objects defined in two domain and
@@ -1221,7 +1588,7 @@ class MechanicalAssembly(MechanicalSystem):
         couple system with node constraint
 
         K1 u1 = f1 + B1*lambda
-        K2 uf = f2 + B2*lambda
+        K2 u2 = f2 + B2*lambda
         B1 + B2 = value
 
         arguments:
@@ -1239,7 +1606,7 @@ class MechanicalAssembly(MechanicalSystem):
                 str or list with the DOFs to be considered for the constraint
         '''
 
-        # gaching string dof_tag to local_dof_list
+        # changing string dof_tag to local_dof_list
         if isinstance(dof_tag,str):
             local_dof_list = [0,0,0]
             tag_list = ['x','y','z']

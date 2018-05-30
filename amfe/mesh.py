@@ -1810,6 +1810,92 @@ class Mesh:
         except:
             print("Please select a valid key value")
 
+    def translation(self, offset):
+        ''' This function translate a set of nodes based on the ref_point_vector 
+        in the reference coordinate system
+        
+        arguments:
+        offset : np.array
+            np.array to apply the translation
+    
+        return :
+            new_mesh : Mesh Obj
+                new_mesh with the new nodes coordinates
+        '''
+        
+        coord = self.nodes
+        num_nodes, dim = coord.shape
+        ref_point_vector = ref_point_vector[:dim]
+        center_vector = np.tile(ref_point_vector , [num_nodes,1])
+    
+        trans_coord = coord + center_vector 
+
+        # creating a new mesh
+        new_mesh = copy.deepcopy(self)
+        new_mesh.nodes = new
+        
+        return new_mesh
+
+    def rot_z(self ,alpha, unit='deg', ref_point_vector = np.array([0.0,0.0,0.0])):
+    
+        ''' This function rotate a set of nodes based on the rotation angule alpha
+        and a reference coordinate system
+    
+        arguments:
+            
+            alpha: float
+                angule to apply rotation in z axis
+            
+            unit: str
+                unit type of alpha, internally alpha must be in rad
+            
+            ref_point_vector: np.array
+                np.array with the vectors of a coordinate system [e1,e2,e3]
+        
+    '''
+    
+
+        coord = self.nodes
+        num_nodes, dim = coord.shape
+        if unit=='deg':
+            # transforme to rad
+            alpha_rad = np.deg2rad(alpha)
+    
+
+        
+        cos_a = np.cos(alpha_rad)
+        sin_a = np.sin(alpha_rad)
+        R = np.matrix([[cos_a, sin_a,0],
+                       [-sin_a, cos_a,0],
+                       [0.0, 0.0, 1.0]])
+    
+        R = R[:dim,:dim]
+        #checking reference point to rotate coordinates
+        bool_coord = False
+        if np.any(ref_point_vector != 0.0):
+            bool_coord = True
+
+        if bool_coord:
+            ref_point_vector = ref_point_vector[:dim]
+            center_vector = np.tile(ref_point_vector , [num_nodes,1])
+            trans_coord = coord - center_vector 
+        else:
+            trans_coord = coord 
+
+        global_nodes = trans_coord.dot(R)
+    
+
+        # back to original coord
+        if bool_coord:
+            global_nodes = global_nodes + center_vector
+
+
+
+        # creating a new mesh
+        new_mesh = copy.deepcopy(self)
+        new_mesh.nodes = np.array(global_nodes)
+        
+        return new_mesh
 
 
 
@@ -1860,7 +1946,7 @@ class SubMesh():
         ''' This methods return a new dataframe with
         only the rows at the self.elements_list
         '''
-        self.elem_dataframe = self.elem_dataframe.loc[self.elements_list,:]
+        self.elem_dataframe = self.parent_mesh.el_df.iloc[self.elements_list,:]
     
     def get_submesh(self,tag,value):
         ''' Get a submesh from parent_mesh based on tag and key value
@@ -1898,7 +1984,7 @@ class SubMesh():
     def __inherit_neumann_nodes__(self,parent_neumann_submesh):
         
         for parent_obj in parent_neumann_submesh:
-            for node in  parent_obj.submesh.global_node_list:
+            for node in parent_obj.submesh.global_node_list:
                 if node in self.global_node_list:
                     self.neumann_submesh.append(parent_obj)
                     break
@@ -1930,6 +2016,8 @@ class SubMesh():
             for sub2_key in sub1.neighbor_partitions:
                 self.__find_interface_nodes__(sub1_key,sub2_key)   
             
+        return self.groups
+
     def __find_interface_nodes__(self,sub1_key,sub2_key):
         
         sub1 = self.groups[sub1_key]
@@ -1942,6 +2030,9 @@ class SubMesh():
         elements_dict = self.parent_mesh.el_df.iloc[:,elem_start_index:elem_last_index]
         elements_dict = elements_dict.dropna(0).astype(int)  # remove rows with NaN   
         
+        elements_dict = self.elem_dataframe.iloc[:,elem_start_index:elem_last_index]
+        elements_dict = elements_dict.dropna(0).astype(int)  # remove rows with NaN   
+
         if sub1.neighbor_partitions and not(sub1_key in sub2.interface_nodes_dict.keys()):    
             print('Extract interface node from sub_%i and sub_%i' %(sub1_key,sub2_key))
             
