@@ -1406,13 +1406,13 @@ class MechanicalAssembly(MechanicalSystem):
         partition_key_1, elem_interface_1 = self.find_partition_in_domain_by_elem(domain_key_1,submesh1.elements_list)
 
         if partition_key_1 is None:
-            print('Not possible to apply Bound Interfaces for the given SubMeshs')
+            print('Not possible to apply Bound Interfaces for the given SubMesh object')
             return None
 
         partition_key_2, elem_interface_2 = self.find_partition_in_domain_by_elem(domain_key_2,submesh2.elements_list)
 
         if partition_key_2 is None:
-            print('Not possible to apply Bound Interfaces for the given SubMeshs')
+            print('Not possible to apply Bound Interfaces for the given SubMesh object')
             return None
 
         int_dict = {domain_key_1:submesh1, domain_key_2:submesh2}
@@ -1459,43 +1459,34 @@ class MechanicalAssembly(MechanicalSystem):
 
         tol = 10E-6 # percetange tolerance for node distance
         
-        for i,elem in enumerate(submesh2.elements_list):
-            nodes_in_2 = list(self.el_df.iloc[elem,self.node_idx:])
-            nodes_in_1 = list(self.el_df.iloc[submesh1.elements_list[i],self.node_idx:])
-            for j,node_id in enumerate(nodes_in_2):
-                if not np.isnan(node_id):
-                    global_node_id = nodes_in_1[j]
-                    
-                    # check node coord
-                    node_coord_1 = self.nodes[global_node_id]
-                    node_coord_2 = self.nodes[node_id]
+        nodes_in_1 =  submesh1.global_node_list
+        nodes_in_2 =  submesh2.global_node_list
+       
+        sucess = False
+        for j,node_id in enumerate(nodes_in_2): 
+            node_coord_1 = self.nodes[node_id]
+            # try to find global index based on node coord
+            for k,global_node_id in enumerate(nodes_in_1):
+                node_coord_2 = self.nodes[global_node_id]
+                if np.linalg.norm(node_coord_1 - node_coord_2)*np.linalg.norm(node_coord_1)<tol:
+                    #nodes_in_2[j] = global_node_id                                        
+                    self.global_to_local_node_dict[global_node_id] = node_id
+                    self.local_to_global_node_dict[node_id] = global_node_id
+                    #self.el_df.iloc[elem2,self.node_idx+j] = global_node_id 
+                    sucess = True
 
-                    if np.linalg.norm(node_coord_1 - node_coord_2)*np.linalg.norm(node_coord_1)<tol:
-                        nodes_in_2[j] = global_node_id
-                        sucess = True
-                    else:
-                        # try to find global index based on node coord
-                        sucess = False
-                        for k,global_node_id in enumerate(nodes_in_1):
-                            node_coord_1 = self.nodes[global_node_id]
-                            if node_coord_1.all() == node_coord_2.all():
-                                nodes_in_2[k] = global_node_id
-                                sucess = True
-                    if sucess:
-                        self.global_to_local_node_dict[global_node_id] = node_id
-                        self.local_to_global_node_dict[node_id] = global_node_id
+        if len(self.global_to_local_node_dict.keys())==0:
+            raise('Error to replace nodes. Please reimplement the method to  \
+                    handle unordered interface nodes.')
+        elif len(self.global_to_local_node_dict.keys())<len(nodes_in_1):
+            print('WARNING! Not possible to match all nodes in the given set')
 
-            if sucess:
-                self.el_df.iloc[elem,self.node_idx:] = nodes_in_2
-            else:
-                raise('Error to replace nodes. Please reimplement the method to  \
-                        handle unordered interface nodes.')
 
-            # update the remaining columns
-            column_list = list(np.arange(self.node_idx, self.last_column_id_in_dataframe))
-            self.replace_dataframe_columns(column_list,self.local_to_global_node_dict)
+        # update the remaining columns
+        column_list = list(np.arange(self.node_idx, self.last_column_id_in_dataframe))
+        self.replace_dataframe_columns(column_list,self.local_to_global_node_dict)
 
-            return self.el_df
+        return self.el_df
 
     def replace_dataframe_columns(self,list_of_column_index,dict_map):
         ''' This function replace values in the self.el_df based on column_index

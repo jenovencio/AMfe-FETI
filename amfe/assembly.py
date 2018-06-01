@@ -236,6 +236,9 @@ class Assembly():
         # will be filled in assembly
         self.C_csr = sp.sparse.csr_matrix((vals_global, (row_global, col_global)),
                                           shape=(no_of_dofs, no_of_dofs), dtype=float)
+
+        #self.C_csr = sp.sparse.csr_matrix( (no_of_dofs,no_of_dofs), dtype=float)
+        
         t2 = time.clock()
         print('Done preallocating stiffness matrix with', no_of_elements,
               'elements and', no_of_dofs, 'dofs.')
@@ -295,21 +298,35 @@ class Assembly():
         # Result (self.element_indices:)
         # the rows are the elements, the columns are the local element dofs
         # the values are the global dofs
+        
         self.element_indices = \
         [np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*node_id)
                    for node_id in elements], dtype=int).reshape(-1)
          for elements in connectivity]
         
+
         # creating an id_matrix for mapping nodes to degress of freedom
         self.id_matrix = []
         dof_count = 0
-        for i in range(self.mesh.no_of_nodes):
+        node_list = list(set(list(np.concatenate(connectivity))))
+        self.id_matrix = {}
+        for i in node_list:
             local_list =  []
             for local_dof in range(no_of_dofs_per_node):
                 local_list.append(dof_count)
                 dof_count +=1
-            self.id_matrix.append(local_list)        
-    
+            self.id_matrix[i] = local_list    
+        
+
+        self.element_indices = []
+        for elements in connectivity:
+            dof_list = []
+            for node_id in elements:
+                dof_list.extend(self.id_matrix[node_id])
+            self.element_indices.append(np.array(dof_list))
+                
+         
+
         self.neumann_indices = \
         [np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*i)
                    for i in nodes], dtype=int).reshape(-1)

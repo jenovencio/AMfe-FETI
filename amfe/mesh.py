@@ -492,7 +492,10 @@ class Mesh:
             - no_of_elements
             
         '''
-        self.no_of_nodes = len(self.nodes)
+        self.no_of_nodes = len(self.nodes)  # old method 
+        if self.connectivity:
+            self.no_of_nodes = len(set(list(np.concatenate( self.connectivity, axis=0 ))))
+
         self.no_of_dofs = self.no_of_nodes*self.no_of_dofs_per_node
         self.no_of_elements = len(self.connectivity)
 
