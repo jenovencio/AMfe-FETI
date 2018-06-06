@@ -18,6 +18,17 @@ import numpy as np
 import copy
 
 colors =['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9']
+colors =[(0.3,0.3,0.3),
+         (0,0,0.8),
+         (0,0.5,0),
+         (0.8,0.8,0),
+         (.3,.3,0),
+         (.6,.6,.6),
+         (0,.5,.5),
+         (1,0,0),
+         (0.5,0.25,0)]
+
+max_number_of_color = len(colors)
 
 def plot_submesh(submesh_obj,ax=None):
     ''' This function plots 2D meshes, suport elements are 
@@ -37,7 +48,8 @@ def plot_submesh(submesh_obj,ax=None):
     patches = []
     x_tri = []
     y_tri = []
-    
+    lines_counter = 0
+
     try:
         submesh_obj.parent_mesh.elements_type_dict = submesh_obj.parent_mesh.el_df['el_type'].to_dict()  
         elem_start_index = submesh_obj.parent_mesh.node_idx
@@ -110,10 +122,15 @@ def plot_submesh(submesh_obj,ax=None):
         patches.clear()
     
     if lines:
-        lc = mc.LineCollection(lines, linewidths=2, color=colors[np.random.randint(0,9)])
+        #lc = mc.LineCollection(lines, linewidths=2, color=colors[np.random.randint(0,9)])
+        lc = mc.LineCollection(lines, linewidths=2, color=colors[lines_counter])
         ax.add_collection(lc)
         ax.autoscale()
         ax.margins(0.1)
+        if lines_counter==max_number_of_color:
+           lines_counter = 0
+        else:
+            lines_counter += 1
     
     if submesh_obj.interface_nodes_dict:
         plot_nodes_in_the_interface(submesh_obj,ax)
@@ -241,7 +258,8 @@ def plot_boundary_1d(mesh_obj,ax=None,linewidth=2):
         
     key_list = []
     mesh_obj.split_in_groups()
-    
+    lines_counter = 0
+
     for sub_key,submesh_obj in mesh_obj.groups.items():
     
         connectivity_tri = []
@@ -318,10 +336,15 @@ def plot_boundary_1d(mesh_obj,ax=None,linewidth=2):
             patches.clear()
         
         if lines:
-            lc = mc.LineCollection(lines, linewidths=linewidth, color=colors[np.random.randint(0,9)],label=str(sub_key))
+            #lc = mc.LineCollection(lines, linewidths=linewidth, color=colors[np.random.randint(0,9)],label=str(sub_key))
+            lc = mc.LineCollection(lines, linewidths=linewidth, color=colors[lines_counter],label=str(sub_key))
             ax.add_collection(lc)
             ax.autoscale()
             ax.margins(0.1)
+            if lines_counter==max_number_of_color:
+                lines_counter = 0
+            else:
+                lines_counter += 1
             
         
         if submesh_obj.interface_nodes_dict:
@@ -560,3 +583,65 @@ def plot_mesh(mesh_obj,ax=None, boundaries=True):
         plot_boundary_1d(mesh_obj,ax,linewidth=4)
 
     return ax   
+
+
+def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
+    ''' This function plots Triagular 2D meshes.
+    
+    
+    Arguments
+        my_system : MechanicalSystem obj
+            mechanical system obj with solution
+        factor: float
+            paramenter for scale the mesh plot
+        ax: matplotlib axes
+
+        u_id : int
+            id of the displacment to be ploted
+        
+    Return
+        p as PatchCollection
+        ax: matplotlib axe 
+    '''
+    
+    patches = []
+    dof = []
+
+    displacement = my_system.u_output[u_id]
+    node_list = my_system.assembly_class.node_list
+    connectivity = my_system.mesh_class.connectivity
+    nodes = my_system.mesh_class.nodes[my_system.assembly_class.node_list]
+
+    elem_dofs = my_system.assembly_class.mesh.no_of_dofs_per_node
+    elem_nodes = []
+    for i,node in enumerate(nodes):
+        xc = node[0] + factor*displacement[0 + i*elem_dofs]
+        yc = node[1] + factor*displacement[1 + i*elem_dofs]
+        dof.extend([xc,yc])
+        
+        if elem_dofs>2:
+            zc = node[2] + factor*displacement[2 + i*elem_dofs]
+            dof.extend([zc])
+        
+    dof = np.array(dof)    
+    for elem in connectivity:
+        node_coord = []
+        for node in elem:
+            dof_id = my_system.assembly_class.id_matrix[node]
+            node_coord.append(dof[dof_id])
+        polygon = Polygon(node_coord, True)
+        patches.append(polygon)
+
+    if ax == None:
+        fig = plt.figure()
+        ax = plt.axes() 
+        
+    ax.autoscale()
+    p = PatchCollection(patches)
+    p.set_edgecolor('k')
+    p.set_facecolor(colors[np.random.randint(0,9)])
+    ax.add_collection(p)
+    ax.autoscale()
+    patches.clear()
+    
+    return p, ax

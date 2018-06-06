@@ -277,14 +277,14 @@ class FETIsubdomain(Assembly):
         #elem_start_index = self.submesh.parent_mesh.node_idx
         #elem_last_index = len(self.submesh.elem_dataframe.columns)
         elem_connec = self.submesh.parent_mesh.el_df.iloc[:,self.elem_start_index:self.elem_last_index]
-        elem_connec = elem_connec.dropna(1) # removing columns with NaN
-        elem_connec = elem_connec.astype(int) # converting all to int
+        #elem_connec = elem_connec.dropna(1) # removing columns with NaN
+        #elem_connec = elem_connec.astype(int) # converting all to int
         
         for sub_obj in self.submesh.neumann_submesh:
             for i,elem_key in enumerate(sub_obj.submesh.elements_list):
                 local_connectivity = []
                 bool_elem = True
-                for node_id in elem_connec.loc[elem_key]:
+                for node_id in elem_connec.loc[elem_key].dropna().astype(int):
                     if node_id in self.submesh.global_node_list:
                         # map global connectivity to local connectivity
                         local_node_id = self.submesh.global_to_local_dict[node_id]
@@ -293,7 +293,7 @@ class FETIsubdomain(Assembly):
                         bool_elem = False 
                         break
                 
-                if local_connectivity and bool_elem:   
+                if len(local_connectivity)>1 and bool_elem:   
                     self.mesh.neumann_connectivity.append(np.array(local_connectivity))
                     self.mesh.neumann_obj.extend([sub_obj.neumann_obj[i]])
                 

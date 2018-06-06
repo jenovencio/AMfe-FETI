@@ -493,7 +493,7 @@ class Mesh:
             
         '''
         self.no_of_nodes = len(self.nodes)  # old method 
-        if self.connectivity:
+        if len(self.connectivity)>0:
             self.no_of_nodes = len(set(list(np.concatenate( self.connectivity, axis=0 ))))
 
         self.no_of_dofs = self.no_of_nodes*self.no_of_dofs_per_node
@@ -1370,9 +1370,13 @@ class Mesh:
                                              time_func, 
                                              typeBC='neumann')
             
+            nm_connectivity = neu_boundary.connectivity
+            calc_newton_connectivity = False
             for sub_key, sub_obj in self.domain_dict.items():
                 sub_obj.append_bondary_condition(neu_boundary)
-        
+        else:
+            calc_newton_connectivity = True
+
         #-----------------------------------------------------------------
         
         df = self.el_df
@@ -1386,15 +1390,22 @@ class Mesh:
         # make a pandas dataframe just for the desired elements
         elements_df = df[df[mesh_prop] == key]
         ele_type = elements_df['el_type'].values
+        
+        # old implementation
+        #--------------------------------------------------------------------
         # add the nodes of the chosen group
-        nm_connectivity = [np.nan for i in range(len(elements_df))]
+        if calc_newton_connectivity:
+            nm_connectivity = [np.nan for i in range(len(elements_df))]
 
-        for i, ele in enumerate(elements_df.values):
-            nm_connectivity[i] = np.array(ele[self.node_idx : self.node_idx
-                                          + amfe2no_of_nodes[ele_type[i]]],
-                                          dtype=int)
+            for i, ele in enumerate(elements_df.values):
+                nm_connectivity[i] = np.array(ele[self.node_idx : self.node_idx
+                                              + amfe2no_of_nodes[ele_type[i]]],
+                                              dtype=int)
 
+        #--------------------------------------------------------------------
+        
         self.neumann_connectivity.extend(nm_connectivity)
+
 
         # make a deep copy of the element class dict and apply the material
         # then add the element objects to the ele_obj list
@@ -1417,7 +1428,7 @@ class Mesh:
 
 
     def set_dirichlet_bc(self, key, coord, mesh_prop='phys_group',
-                         output='internal'):
+                         output='internal', id_matrix = None):
         '''
         Add a group of the mesh to the dirichlet nodes to be fixed. It sets the
         mesh-properties 'nodes_dirichlet' and 'dofs_dirichlet'
@@ -1435,6 +1446,9 @@ class Mesh:
             phys_group.
         output : str {'internal', 'external'}
             key stating, boundary information is stored internally or externally
+        id_matrix : dict
+            dict that maps nodes to system Dofs
+
 
 
         Returns
@@ -1485,16 +1499,32 @@ class Mesh:
 
         # build the dofs_dirichlet, a list containing the dirichlet dofs:
         dofs_dirichlet = []
-        if 'x' in coord:
-            dofs_dirichlet.extend(unique_nodes * self.no_of_dofs_per_node)
-        if 'y' in coord:
-            dofs_dirichlet.extend(unique_nodes * self.no_of_dofs_per_node + 1)
-        if 'z' in coord and self.no_of_dofs_per_node > 2:
-            # TODO: Separate second if and throw error or warning
-            dofs_dirichlet.extend(unique_nodes * self.no_of_dofs_per_node + 2)
+        
+        if id_matrix is None:
+            # Old implementation which not uses a ID_matrix
+            if 'x' in coord:
+                dofs_dirichlet.extend(unique_nodes * self.no_of_dofs_per_node)
+            if 'y' in coord:
+                dofs_dirichlet.extend(unique_nodes * self.no_of_dofs_per_node + 1)
+            if 'z' in coord and self.no_of_dofs_per_node > 2:
+                # TODO: Separate second if and throw error or warning
+                dofs_dirichlet.extend(unique_nodes * self.no_of_dofs_per_node + 2)
+        else:
+            # new implementation which uses a ID_matrix
+            id_dof = []
+            if 'x' in coord:
+                id_dof.extend([0])
+            if 'y' in coord:
+                id_dof.extend([1])
+            if 'z' in coord and self.no_of_dofs_per_node > 2:
+                # TODO: Separate second if and throw error or warning
+                id_dof.extend([2])
 
+            for node in unique_nodes:
+                for dof in id_dof:
+                    dofs_dirichlet.extend([id_matrix[int(node)][dof]])
+        
         dofs_dirichlet = np.array(dofs_dirichlet, dtype=int)
-
         # TODO: Folgende Zeilen sind etwas umstaendlich, erst conversion to list, dann extend und dann zurueckconversion
         nodes_dirichlet = unique_nodes
         # nodes_dirichlet = self.nodes_dirichlet.tolist()
@@ -2003,21 +2033,23 @@ class SubMesh():
         
     def split_in_partitions(self, group_type = 'partition_id'):
         
+        Mesh.split_in_groups(self,group_type, self.parent_mesh, self.elem_dataframe)
+        
         if group_type == 'partition_id':
+            
             self.has_partitions = True  
             
-        Mesh.split_in_groups(self,group_type, self.parent_mesh, self.elem_dataframe)
-        for key in self.groups_dict:
-            self.groups[key].is_partition = True
-            self.groups[key].__find_interior_and_interface_element__()
-            self.groups[key].__inherit_neumann_nodes__(self.neumann_submesh)
-            self.groups[key].__inherit_dirichlet_nodes__(self.dirichlet_submesh)
-            self.groups[key].set_material(self.__material__)
-        # find interface nodes
-        for sub1_key in self.groups_dict:
-            sub1 = self.groups[sub1_key]
-            for sub2_key in sub1.neighbor_partitions:
-                self.__find_interface_nodes__(sub1_key,sub2_key)   
+            for key in self.groups_dict:
+                self.groups[key].is_partition = True
+                self.groups[key].__find_interior_and_interface_element__()
+                self.groups[key].__inherit_neumann_nodes__(self.neumann_submesh)
+                self.groups[key].__inherit_dirichlet_nodes__(self.dirichlet_submesh)
+                self.groups[key].set_material(self.__material__)
+            # find interface nodes
+            for sub1_key in self.groups_dict:
+                sub1 = self.groups[sub1_key]
+                for sub2_key in sub1.neighbor_partitions:
+                    self.__find_interface_nodes__(sub1_key,sub2_key)   
             
         return self.groups
 

@@ -201,10 +201,15 @@ class Assembly():
         # computation of all necessary variables:
         no_of_elements = self.mesh.no_of_elements
         no_of_dofs = self.mesh.no_of_dofs
-        self.nodes_voigt = self.mesh.nodes.reshape(-1)
-
+        
         self.compute_element_indices()
+
+        # new implentation to deal with problems which do not use all nodes
+        # but uses a subset of nodes self.node_list
+        self.nodes_voigt = self.mesh.nodes[self.node_list].reshape(-1)
+
         max_dofs_per_element = np.max([len(i) for i in self.element_indices])
+
 
         # Auxiliary Help-Matrix H which is the blueprint of the local
         # element stiffness matrix
@@ -299,16 +304,28 @@ class Assembly():
         # the rows are the elements, the columns are the local element dofs
         # the values are the global dofs
         
-        self.element_indices = \
-        [np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*node_id)
-                   for node_id in elements], dtype=int).reshape(-1)
-         for elements in connectivity]
+
+        #--------------------------------------------------------------
+        # old implementation not based on matrix_id
+        #self.element_indices = \
+        #[np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*node_id)
+        #           for node_id in elements], dtype=int).reshape(-1)
+        # for elements in connectivity]
         
+         
+        #--------------------------------------------------------------
+        # old implementation not based on matrix_id
+        #self.neumann_indices = \
+        #[np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*i)
+        #           for i in nodes], dtype=int).reshape(-1)
+        # for nodes in nm_connectivity]
+        #--------------------------------------------------------------
 
         # creating an id_matrix for mapping nodes to degress of freedom
         self.id_matrix = []
         dof_count = 0
         node_list = list(set(list(np.concatenate(connectivity))))
+        self.node_list = node_list
         self.id_matrix = {}
         for i in node_list:
             local_list =  []
@@ -325,12 +342,14 @@ class Assembly():
                 dof_list.extend(self.id_matrix[node_id])
             self.element_indices.append(np.array(dof_list))
                 
-         
 
-        self.neumann_indices = \
-        [np.array([(np.arange(no_of_dofs_per_node) + no_of_dofs_per_node*i)
-                   for i in nodes], dtype=int).reshape(-1)
-         for nodes in nm_connectivity]
+        self.neumann_indices = []
+        for elements in nm_connectivity:
+            dof_list = []
+            for node_id in elements:
+                dof_list.extend(self.id_matrix[node_id])
+            self.neumann_indices.append(np.array(dof_list))
+
 
         # compute nodes_frequency for stress recovery
         nodes_vec = np.concatenate(self.mesh.connectivity)
