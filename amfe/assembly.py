@@ -399,7 +399,7 @@ class Assembly():
             fill_csr_matrix(K_csr.indptr, K_csr.indices, K_csr.data, K, indices)
 
         self.stiffness = K_csr
-        self.internal_force = f_glob
+        self.internal_force = np.matrix(f_glob).T
         return K_csr, f_glob
 
 

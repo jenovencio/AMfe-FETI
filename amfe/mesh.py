@@ -14,6 +14,8 @@ __all__ = ['Mesh',
 
 import os
 import copy
+
+
 # XML stuff
 from xml.etree.ElementTree import Element, SubElement
 from xml.etree import ElementTree
@@ -24,6 +26,8 @@ from xml.dom import minidom
 import pandas as pd
 import h5py
 import numpy as np
+
+
 
 from .element import Tet4, \
     Tet10, \
@@ -492,9 +496,11 @@ class Mesh:
             - no_of_elements
             
         '''
-        self.no_of_nodes = len(self.nodes)  # old method 
+        
         if len(self.connectivity)>0:
             self.no_of_nodes = len(set(list(np.concatenate( self.connectivity, axis=0 ))))
+        else:
+            self.no_of_nodes = len(self.nodes)  # old method 
 
         self.no_of_dofs = self.no_of_nodes*self.no_of_dofs_per_node
         self.no_of_elements = len(self.connectivity)
@@ -1092,6 +1098,35 @@ class Mesh:
         # make a pandas dataframe just for the desired elements
         elements_df = df[df[mesh_prop] == key]
 
+        
+        
+        connectivity = self.compute_connectivity_and_add_material(elements_df,material)
+        
+        # log info some output stuff
+        print('*************************************************************')
+        print('\n', mesh_prop, key, 'with', len(connectivity), \
+              'elements successfully added.')
+        print('Total number of elements in mesh:', len(self.ele_obj))
+        print('*************************************************************')
+        
+        return None
+
+    def compute_connectivity_and_add_material(self,elements_df,material):
+        ''' This method compute the elements connectivity
+        and assign a material for each element
+        
+        argument:
+            elements_df : Pandas DataFrame
+                dataframe with elements information
+            
+            material: Material obj
+                amfe material object
+        
+        return:
+            connectivity : list 
+                list of elements connectivity
+        '''
+        
         # add the nodes of the chosen group
         connectivity = [np.nan for i in range(len(elements_df))]
         for i, ele in enumerate(elements_df.values):
@@ -1110,13 +1145,10 @@ class Mesh:
         object_series = elements_df.el_type.map(ele_class_dict)
         self.ele_obj.extend(object_series.values.tolist())
         self._update_mesh_props()
+        
 
-        # print some output stuff
-        print('\n', mesh_prop, key, 'with', len(connectivity), \
-              'elements successfully added.')
-        print('Total number of elements in mesh:', len(self.ele_obj))
-        print('*************************************************************')
-
+        
+        return connectivity
 
     def load_subset(self,subset_dict,material):
         '''
@@ -1282,7 +1314,7 @@ class Mesh:
 
     def mesh_information(self, mesh_prop='phys_group'):
         '''
-        Print some information about the mesh that is being imported
+        print some information about the mesh that is being imported
         Attention: This information is not about the mesh that is already
         loaded for further calculation. Instead it is about the mesh that is
         found in an import-file!
@@ -1789,7 +1821,14 @@ class Mesh:
             #
             # passsing to submesh only a part of data frame which correspond to the submesh
             elem_dataframe_i = elem_dataframe.loc[groups_dict[key],:]
-            submesh = SubMesh(key, sub_num_of_elem, elem_dataframe_i, parent, groups_dict[key])
+
+            # selecting if parent mesh will be a copy or a pointer
+            if group_type=='partition_id':
+                copy_parent = True
+            else:
+                copy_parent = False
+
+            submesh = SubMesh(key, sub_num_of_elem, elem_dataframe_i, parent, groups_dict[key], copy_parent)
             self.groups[key] = submesh
             self.__last_tag__ = group_type
 
@@ -1858,14 +1897,14 @@ class Mesh:
         
         coord = self.nodes
         num_nodes, dim = coord.shape
-        ref_point_vector = ref_point_vector[:dim]
+        ref_point_vector = offset[:dim]
         center_vector = np.tile(ref_point_vector , [num_nodes,1])
     
         trans_coord = coord + center_vector 
 
         # creating a new mesh
         new_mesh = copy.deepcopy(self)
-        new_mesh.nodes = new
+        new_mesh.nodes = trans_coord
         
         return new_mesh
 
@@ -1932,15 +1971,17 @@ class Mesh:
 
 
 
-
 class SubMesh():
     ''' The SubMesh is a class which provides a easy data structure for dealing 
     with subsets of the global mesh
     '''
-    def __init__(self,t,num_of_elem,elem_dataframe=None,parent_mesh=None, elem_list = None):
+    def __init__(self,t,num_of_elem, elem_dataframe=None, parent_mesh=None, elem_list = None, copy_parent=True):
     
-      
-        self.parent_mesh = copy.deepcopy(parent_mesh)
+        if copy_parent:
+            self.parent_mesh = copy.deepcopy(parent_mesh)
+        else:
+            self.parent_mesh = parent_mesh
+
         self.num_of_elem =num_of_elem
         self.key = t
         self.elements_list = elem_list
@@ -2062,8 +2103,8 @@ class SubMesh():
         
         elem_start_index = self.parent_mesh.node_idx
         elem_last_index = len(self.parent_mesh.el_df.columns)
-        elements_dict = self.parent_mesh.el_df.iloc[:,elem_start_index:elem_last_index]
-        elements_dict = elements_dict.dropna(0).astype(int)  # remove rows with NaN   
+        #elements_dict = self.parent_mesh.el_df.iloc[:,elem_start_index:elem_last_index]
+        #elements_dict = elements_dict.dropna(0).astype(int)  # remove rows with NaN   
         
         elements_dict = self.elem_dataframe.iloc[:,elem_start_index:elem_last_index]
         elements_dict = elements_dict.dropna(0).astype(int)  # remove rows with NaN   
@@ -2079,19 +2120,25 @@ class SubMesh():
                 sub2_nodes.extend(nodes2)
             
             # exclud duplicated nodes
-            sub1_nodes = list(set(sub1_nodes))
-            sub2_nodes = list(set(sub2_nodes))
+            #sub1_nodes = list(set(sub1_nodes))
+            #sub2_nodes = list(set(sub2_nodes))
             
-            for node in sub1_nodes:
-                if node in sub2_nodes:
-                    try:
-                        sub1.interface_nodes_dict[sub2_key].append(node)
-                        sub2.interface_nodes_dict[sub1_key].append(node)
-                    except:    
-                        sub1.interface_nodes_dict[sub2_key] = []
-                        sub2.interface_nodes_dict[sub1_key] = []
-                        sub1.interface_nodes_dict[sub2_key].append(node)
-                        sub2.interface_nodes_dict[sub1_key].append(node)
+            nodes = list(set(sub1_nodes).intersection(sub2_nodes))
+            sub1.interface_nodes_dict[sub2_key] = []
+            sub2.interface_nodes_dict[sub1_key] = []
+            sub1.interface_nodes_dict[sub2_key].extend(nodes)
+            sub2.interface_nodes_dict[sub1_key].extend(nodes)
+           
+            #for node in sub1_nodes:
+            #    if node in sub2_nodes:
+            #        try:
+            #            sub1.interface_nodes_dict[sub2_key].append(node)
+            #            sub2.interface_nodes_dict[sub1_key].append(node)
+            #        except:    
+            #            sub1.interface_nodes_dict[sub2_key] = []
+            #            sub2.interface_nodes_dict[sub1_key] = []
+            #            sub1.interface_nodes_dict[sub2_key].append(node)
+            #            sub2.interface_nodes_dict[sub1_key].append(node)
                         
         elif sub1_key in sub2.interface_nodes_dict.keys():
             print('Interface nodes from sub_%i and sub_%i already extracted' %(sub1_key,sub2_key))

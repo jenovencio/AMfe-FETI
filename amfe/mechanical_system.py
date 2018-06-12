@@ -1148,15 +1148,6 @@ class MechanicalAssembly(MechanicalSystem):
         self.update_submesh_with_global_mesh()
         self.assembly_class = Assembly(self.mesh_class)
 
-        #for key in self.domain_key_list:
-        #    domain = self.get_domain(key)
-        #    domain.__material__
-        #    self.mesh_class.load_group_to_mesh(key, domain.__material__ , 'domain')
-
-        #    self.no_of_dofs_per_node += self.mesh_class.no_of_dofs_per_node
-        
-        #self.assembly_class.preallocate_csr()
-
 
     def create_mesh_obj(self):
         ''' this method create a global mesh object based on 
@@ -1214,10 +1205,7 @@ class MechanicalAssembly(MechanicalSystem):
 
         '''
 
-        
         if abs(value) == 0.0:
-
-
             # Objecs for FETI method
             dir_sub = Boundary(submesh,value,direction,'dirichlet')
             #domain.append_bondary_condition(dir_sub)
@@ -1243,8 +1231,7 @@ class MechanicalAssembly(MechanicalSystem):
         ''' This function create a dataframe including all
         domain in self.domain_dict
         '''
-        
-        
+                
         count = 0
         max_node_id = self.max_node_id
         max_num_of_partitions = self.max_num_of_partitions
@@ -1348,7 +1335,7 @@ class MechanicalAssembly(MechanicalSystem):
 
         return self.groups
 
-    def update_domain(self, domain_key = 100):
+    def update_domain(self, preallocate=False):
         ''' create the self.domain variables
         '''
         self.update_submesh_with_global_mesh()
@@ -1371,13 +1358,19 @@ class MechanicalAssembly(MechanicalSystem):
 
             for dir_sub in self.dirichlet_submesh:
                 domain.append_bondary_condition(dir_sub)
+        
+            self.mesh_class.compute_connectivity_and_add_material(domain.elem_dataframe, domain.__material__)
+            self.no_of_dofs_per_node = self.mesh_class.no_of_dofs_per_node
+
+            if preallocate:
+                self.assembly_class.compute_element_indices()
+            else:
+                self.assembly_class.preallocate_csr()
 
         #elem_dataframe = elem_dataframe.reset_index(drop=True)
         #elem_dataframe = self.el_df
         
         num_of_elem = len(self.el_df)
-        domain = SubMesh(domain_key,num_of_elem,elem_dataframe=elem_dataframe, 
-                         parent_mesh=self.mesh_class, elem_list = None)
 
         for neu_sub in self.neumann_submesh:
             domain.append_bondary_condition(neu_sub)
@@ -1387,8 +1380,8 @@ class MechanicalAssembly(MechanicalSystem):
 
         self.update_boundary_submesh()
 
-        self.domain = domain
-        return domain
+        self.domain = self
+        return self
 
     def update_boundary_submesh(self):
         ''' This method updates boundary submeshes based on 
@@ -1444,15 +1437,15 @@ class MechanicalAssembly(MechanicalSystem):
         domain_key_1 = submesh1.elem_dataframe['domain'].iloc[0]
         domain_key_2 = submesh2.elem_dataframe['domain'].iloc[0]
 
-        partition_key_1, elem_interface_1 = self.find_partition_in_domain_by_elem(domain_key_1,submesh1.elements_list)
+        interface_elem_dict_1 = self.find_partition_in_domain_by_elem(domain_key_1,submesh1.elements_list)
 
-        if partition_key_1 is None:
+        if not interface_elem_dict_1:
             print('Not possible to apply Bonded Interfaces for the given SubMesh object')
             return None
 
-        partition_key_2, elem_interface_2 = self.find_partition_in_domain_by_elem(domain_key_2,submesh2.elements_list)
+        interface_elem_dict_2 = self.find_partition_in_domain_by_elem(domain_key_2,submesh2.elements_list)
 
-        if partition_key_2 is None:
+        if not interface_elem_dict_2:
             print('Not possible to apply Bonded Interfaces for the given SubMesh object')
             return None
 
@@ -1460,8 +1453,12 @@ class MechanicalAssembly(MechanicalSystem):
         self.bonded_interface_constraint_list.append(int_dict)
 
         # update dataframe
-        self.update_partitions_neighbors_in_dataframe(elem_interface_1,partition_key_2)
-        self.update_partitions_neighbors_in_dataframe(elem_interface_2,partition_key_1)
+        for partition_key_2 in interface_elem_dict_1:
+            elem_interface_1 = interface_elem_dict_1[partition_key_2]
+            for partition_key_1 in interface_elem_dict_2:
+                elem_interface_2 = interface_elem_dict_2[partition_key_1]
+                self.update_partitions_neighbors_in_dataframe(elem_interface_2,partition_key_2)
+                self.update_partitions_neighbors_in_dataframe(elem_interface_1,partition_key_1)
 
         # update nodes in dataframe
         node_at_interface = self.replace_nodes_in_dataframe(submesh1,submesh2,tol)
@@ -1615,34 +1612,40 @@ class MechanicalAssembly(MechanicalSystem):
             element number based on self.el_df
 
         return 
-            either
-                partition_id : int
-                    number of the partition id
-
-                interface_elem_list : list
-                    list of element in the interface
-                
-                when elem has node in domain
-            or
-                None 
-                when elem has no nodes in domain
+             interface_elem_dict
+                where the partition_id is the key and the value 
+                is a list of elements
 
         '''
         
         domain = self.get_domain(domain_key)
-        interface_elem_list = []
         p_id = None
-
+        slice_dataframe = self.el_df.iloc[:,self.node_idx:].to_dict('index')
+        interface_elem_dict = {}
         for elem_num in elem_list:
-            nodes_in_elem_target = list(self.el_df.iloc[elem_num,self.node_idx :].dropna())
+            nodes_in_elem_target = list(slice_dataframe[elem_num].values())
             for elem in domain.elements_list:
-                nodes_in_domain =  list(self.el_df.iloc[elem,self.node_idx :].dropna().astype(int))
-                if set(nodes_in_elem_target).intersection(nodes_in_domain):
+                nodes_in_domain =  list(np.array(list(slice_dataframe[elem].values())))
+                intersection_set = set(nodes_in_elem_target).intersection(nodes_in_domain)
+
+                if len(intersection_set)>1:
+                    bool = True
+                elif len(intersection_set)==1 and np.nan not in intersection_set:
+                    bool = True
+                else:
+                    bool = False
+                
+                if bool:
                     p_id = int(self.el_df.loc[elem,['partition_id']])
                     self.el_df.loc[elem_num,['partition_id']] = p_id
-                    interface_elem_list.append(elem)
+                    try:
+                        interface_elem_dict[p_id].append(elem)
+                    except:
+                        interface_elem_dict[p_id] = []
+                        interface_elem_dict[p_id].append(elem)
 
-        return p_id, interface_elem_list
+
+        return interface_elem_dict
 
 
     def add_linear_equatity_node_const(self, const_obj1, const_obj2, value=0.0, dof_tag = 'xyz'):

@@ -68,7 +68,6 @@ class test_feti_solver(unittest.TestCase):
         
                 my_system2 = copy.deepcopy(my_system)
                 s = amfe.LinearStaticsSolver(my_system2)
-                amfe.LinearStaticsSolver(my_system)
                 s.solve()
                 amfe_disp = my_system2.u_output[1]
         
@@ -81,6 +80,10 @@ if __name__ == '__main__':
     Please Run it from the command line:
             python test_feti_solver.py
     ''')
+    
+    import shutil
+
+    shutil.rmtree('temp')
     
     unittest.main()
                  

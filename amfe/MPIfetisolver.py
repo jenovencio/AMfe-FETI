@@ -20,9 +20,10 @@ import amfe
 import numpy as np
 import scipy.sparse as sparse
 import scipy
+import logging
 
-#from .amna import *
-#from .feti_solver import *
+
+logging.basicConfig(level=logging.INFO)
 
 def run_command(cmd):
     """given shell command, returns communication tuple of stdout and stderr"""
@@ -39,17 +40,7 @@ def subdomain_i(sub_id):
     B_dict = sub_i.assemble_interface_boolean_matrix()
     sub_i.calc_null_space()
     R = sub_i.null_space
-    U = sub_i.upper_cholesky
-    
-    # checking cholesky decompostion
-    K = sub_i.stiffness
-    Knew = np.matmul(U.T,U)
-    
-    chol_error = np.linalg.norm(Knew - K)
-    
-    Fext = sub_i.force
-    #e = Fext.dot(R)
-    
+
     # store all G in G_dict
     Gi_dict = {}
     for key in B_dict:
@@ -111,7 +102,7 @@ def exchange_info(sub_id,master,master_append_func,var,partitions_list):
         master_append_func_list = master_append_func
     
     if len(var)!=len(master_append_func):
-        print('Error exchaning information among subdomains')
+        logging.debug('Error exchaning information among subdomains')
         return None
     
     for var,master_append_func in zip(var_list,master_append_func_list):
@@ -119,7 +110,6 @@ def exchange_info(sub_id,master,master_append_func,var,partitions_list):
             if partition_id != sub_id:
                 #send to neighbors local h 
                 comm.send(var, dest=partition_id)
-		
                 # receive local h from neighbors
                 nei_var = comm.recv(source=partition_id)
 
@@ -134,7 +124,6 @@ def exchange_info(sub_id,master,master_append_func,var,partitions_list):
              
                 except:
                     master_append_func(var,sub_id)
-            		
     
     return master
 
@@ -210,8 +199,7 @@ def subdomain_step4(sub_i,lambda_sol,alpha):
         else:
             b_hat = b_hat + b_hati
 
-    
-    
+
     f = sub_i.force
     b = f - b_hat
     
@@ -266,7 +254,7 @@ class ParallelSolver():
         
         self.residual = []
         
-    def mpi_solver(self,sub_domain,num_partitions,n_int = 500, tol = 1E-10):
+    def mpi_solver(self,sub_domain,num_partitions,n_int = 500, tol = 1.0E-6):
         ''' solve linear FETI problem with PCGP with parcial reorthogonalization
         '''
         
@@ -274,37 +262,38 @@ class ParallelSolver():
             
             global sub_id
             sub_id = rank
-            print("%%%%%%%%%%%%%%%%%%% START %%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
-            print("Solving domain %i from size %i" %(rank,num_partitions))   
-            sub_i, Gi_dict = subdomain_i(sub_id) 
-            print(Gi_dict.keys())  
-            
-             
+            logging.debug("%%%%%%%%%%%%%%%%%%% START %%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
+            logging.debug("Solving domain %i from size %i" %(rank,num_partitions))   
+            sub_i = amfe.FETIsubdomain(sub_domain.groups[sub_id])
+            sub_i.set_cholesky_tolerance =  tol
+            Gi_dict = sub_i.calc_G_dict()
+            #sub_i, Gi_dict = subdomain_i(sub_id) 
+            logging.debug('Domain', str(sub_id) , 'G_dict =',Gi_dict.keys())  
+
             # sending message for neighbors
             for nei_id in sub_i.submesh.neighbor_partitions:
-                print("\nSending message from %i to neighbor %i" %(sub_id,nei_id))
+                logging.debug("\nSending message from %i to neighbor %i" %(sub_id,nei_id))
                 if (sub_id,nei_id) in Gi_dict: 
                     comm.send(Gi_dict[sub_id, nei_id], dest=nei_id)
             
-                    
             master.subdomain_keys = partitions_list
             master.appendG(Gi_dict,sub_id)
             
             # reciving message for neighbors
             Gj_dict = {}
             for nei_id in sub_i.submesh.neighbor_partitions:
-                print("\nReceiving message at subdomain %i from neighbor %i" %(sub_id,nei_id))
+                logging.debug("\nReceiving message at subdomain %i from neighbor %i" %(sub_id,nei_id))
                 Gj_dict[nei_id,sub_id]= comm.recv(source=nei_id)
                 master.appendG(Gj_dict,nei_id)
                         
-            print(Gj_dict.keys())   
+            logging.debug(Gj_dict.keys())   
             
             # creating GtG rows
             GtG_rows_dict = create_GtG_rows(Gi_dict,Gj_dict,sub_id)
             null_space_size = sub_i.null_space_size
             
-            print('Local GtG rows')
-            print(GtG_rows_dict.keys())
+            logging.info('Local GtG rows')
+            logging.info(GtG_rows_dict.keys())
                     
             master_func_list = [master.appendGtG_row, master.append_local_B,
                                 master.append_null_space_force]
@@ -314,50 +303,50 @@ class ParallelSolver():
             exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
             
         
-            print('Master GtG keys')
-            print(master.GtG_row_dict.keys())    
+            logging.debug('Master GtG keys')
+            logging.debug(master.GtG_row_dict.keys())    
             
-            # print local rows
-            print('Local rows for each subdomain')
+            # logging.debug local rows
+            logging.debug('Local rows for each subdomain')
             for key in master.GtG_row_dict:
-                print(master.GtG_row_dict[key])   
+                logging.debug(master.GtG_row_dict[key])   
         
-            print('B dict')
-            print(master.Bi_dict.keys())   
+            logging.debug('B dict')
+            logging.debug(master.Bi_dict.keys())   
             for key in master.Bi_dict:
-                print(master.Bi_dict[key].todense())
+                logging.debug(master.Bi_dict[key].todense())
             
-            print('G dict')
-            print(master.G_dict.keys())   
+            logging.debug('G dict')
+            logging.debug(master.G_dict.keys())   
             for key in master.G_dict:
-                print(master.G_dict[key])
+                logging.debug(master.G_dict[key])
                 
-            print('total interface dof %i' %master.total_interface_dof)
-            print('total dof %i' %master.total_dof)
-            print('Null space size %i' %master.total_nullspace_dof)
-            print('Null space size %i' %master.course_grid_size)
+            logging.debug('total interface dof %i' %master.total_interface_dof)
+            logging.debug('total dof %i' %master.total_dof)
+            logging.debug('Null space size %i' %master.total_nullspace_dof)
+            logging.debug('Null space size %i' %master.course_grid_size)
             
             
             lambda_im_dict = master.solve_lambda_im()
             lambda_im = master.lambda_im
             lambda_ker = master.lambda_ker
             
-            print('master.lambda_im')
-            print(master.lambda_im)
+            logging.debug('master.lambda_im')
+            logging.debug(master.lambda_im)
             
-            print('lambda_im_dict')
-            print(lambda_im_dict)
+            logging.debug('lambda_im_dict')
+            logging.debug(lambda_im_dict)
             
             lambda_id_dict = master.lambda_id_dict
-            print('lambda_id_dict')
-            print(lambda_id_dict)
+            logging.debug('lambda_id_dict')
+            logging.debug(lambda_id_dict)
             
             # apply local F operations
             local_h_dict = subdomain_apply_F(sub_i,lambda_id_dict,lambda_im)
-            print('local_h_dict.keys()')
-            print(local_h_dict.keys())
+            logging.debug('local_h_dict.keys()')
+            logging.debug(local_h_dict.keys())
             for key in local_h_dict:
-                print(local_h_dict[key])
+                logging.debug(local_h_dict[key])
             
             
             
@@ -368,12 +357,12 @@ class ParallelSolver():
             exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
             
             Fim = master.assemble_h() # Fpk = B*Kpinv*B'*pk
-            print('Fim')
-            print(Fim)
+            logging.debug('Fim')
+            logging.debug(Fim)
             
             d = master.assemble_global_d_hat() # dual force global assemble
-            print('d')
-            print(d)
+            logging.debug('d')
+            logging.debug(d)
             
             # init precond
             n = len(lambda_ker)
@@ -395,15 +384,15 @@ class ParallelSolver():
             
                 # check norm of rk
                 norm_rk = np.linalg.norm(rk)
-                print('iteration %i, norm rk = %f' %(i,norm_rk))
+                logging.debug('iteration %i, norm rk = %f' %(i,norm_rk))
                 
                 # solve course grid
                 wk, alpha_hat = master.solve_corse_grid(rk) # assemble local d_hats and solve P*F*d_hat
                 norm_wk = np.linalg.norm(wk)
                 self.residual.append(norm_wk)
-                #print('wk =', wk.T)
+                #logging.debug('wk =', wk.T)
                 
-                print('iteration %i, norm wk = %0.2e /n' %(i,norm_wk))
+                logging.debug('iteration %i, norm wk = %0.2e /n' %(i,norm_wk))
                 if norm_wk < tol:
                     break
                 
@@ -411,8 +400,8 @@ class ParallelSolver():
                 # calculation for the preconditioning
                 
                 sub_i.solve_local_displacement(lambda_im, lambda_id_dict)
-                print('u_bar')
-                print(sub_i.u_bar)
+                logging.debug('u_bar')
+                logging.debug(sub_i.u_bar)
                 
                 #------------------------------------------------------------------
                 
@@ -433,11 +422,11 @@ class ParallelSolver():
                 
                 # calc beta
                 beta = beta_calc(i,y_dict,w_dict)
-                print('beta = ', beta)
+                logging.debug('beta = ', beta)
                 
                 # calc pk
                 pk = yk + beta*pk1
-                print('pk', pk.T)
+                logging.debug('pk', pk.T)
                 
                 # this step depends on comunication of subdomains
                 # calc local Fpk
@@ -452,11 +441,11 @@ class ParallelSolver():
                 
                             
                 h = master.assemble_h() # Fpk = B*Kpinv*B'*pk
-                print('h = ', h.T)
+                logging.debug('h = ', h.T)
                 
                 # calc alpha k # do it in parallel
                 alpha = alpha_calc(yk,wk,pk,h)
-                print('alpha =', alpha)
+                logging.debug('alpha =', alpha)
             
                 # update lambda_ker and r
                 delta_rk = alpha*h
@@ -468,8 +457,8 @@ class ParallelSolver():
                 
             # lagrange multiplier solution
             lambda_sol =  lambda_im + lambda_ker
-            print('lambda_sol')
-            print(lambda_sol.T)
+            logging.debug('lambda_sol')
+            logging.debug(lambda_sol.T)
             
             # compute global error
             d = master.assemble_global_d_hat() # dual force global assemble
@@ -477,7 +466,7 @@ class ParallelSolver():
             # calc Global F_lambda
             F_lambda = global_apply_F(master,sub_i,lambda_id_dict,lambda_sol)
             
-            print('F_lambda =', F_lambda.T)
+            logging.debug('F_lambda =', F_lambda.T)
             
             d_hat = d
             
@@ -486,16 +475,16 @@ class ParallelSolver():
             wk, alpha_hat = master.solve_corse_grid(d_hat)
             
             u = subdomain_step4(sub_i, lambda_sol, alpha_hat)
-            print('u =', u.T)
+            logging.debug('u =', u.T)
             
             res_path = os.path.join(directory,str(sub_id) + '.are')
             amfe.save_object(sub_i, res_path)
             return sub_i
     
-            print("%%%%%%%%%%%%%%%%%%% END %%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
+            logging.debug("%%%%%%%%%%%%%%%%%%% END %%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
             
         else:
-            print("Nothing to do on from process %i " %rank)   
+            logging.debug("Nothing to do on from process %i " %rank)   
             return None
 
 
@@ -512,14 +501,17 @@ if __name__ == "__main__":
         
     # load FEA case
     case_obj = args[1]
-    directory = args[2]
+    try:
+        directory = args[2]
+    except:
+        directory = ''
     case_path = os.path.join(directory,case_obj)
     
-    print('########################################')
-    print(case_obj)
-    print(directory)
-    print(case_path)
-    print('########################################')
+    logging.debug('########################################')
+    logging.debug('Case object = %s' %case_obj)
+    logging.debug('Directory pass to MPI solver = %s' %directory)
+    logging.debug('FUll case path passed to MPI solver = %s' %case_path)
+    logging.debug('########################################')
     
     my_system = amfe.load_obj(case_path)
     domain = my_system.domain

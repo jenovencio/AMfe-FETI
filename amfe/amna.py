@@ -16,12 +16,12 @@ methods:
 
 """
 
-
+import logging 
 
 import numpy as np
 import scipy.sparse as sparse
 
-def cholsps(A,tol=1e-10):    
+def cholsps(A, tol=1.0e-6):    
     ''' This method return the upper traingular matrix of cholesky decomposition of A.
     This function works for positive semi-definite matrix. 
     This functions also return the null space of the matrix A.
@@ -53,7 +53,7 @@ def cholsps(A,tol=1e-10):
     else:    
         Atrace = np.trace(A)
         
-    tolA = tol*Atrace
+    tolA = tol*Atrace/n
     
     for i in range(n):
         Li = L[i,:]
@@ -66,7 +66,8 @@ def cholsps(A,tol=1e-10):
             idf.append(i)
     
         elif Lii<-tolA:
-            print('Matrix is not positive semi-definite')
+            logging.debug('Matrix is not positive semi-definite.' + \
+                          'Given tolerance = %2.5e' %tol)
             return L, [], None
     
         for j in range(i+1,n):
@@ -111,6 +112,7 @@ def cholsps(A,tol=1e-10):
         # back to the original bases
         R[idf,:] = Im
         R[idp,:] = R11
-    
+        
+        logging.debug('Null space size = %i' %len(idf))
             
     return U, idf, R   

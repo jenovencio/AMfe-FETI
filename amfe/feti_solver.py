@@ -16,6 +16,10 @@ from .mesh import Mesh
 import dill as pickle
 import subprocess
 from .tools import *
+import logging
+import pandas as pd
+
+#logging.basicConfig(level=logging.DEBUG)
 
 gmsh2amfe_elem_dict = {}
 gmsh2amfe_elem_dict[4] = 'Tet4'
@@ -67,14 +71,27 @@ def load_obj(filename):
     return obj
 
 
+# geting path of MPI executable
+mpi_exec = 'mpiexec'
 try:
     mpi_path = os.environ['MPIDIR']
+    mpi_exec = os.path.join(mpi_path, mpi_exec).replace('"','')
 except:
-    mpi_path = '""'
+    print("Warning! Using mpiexec in global path")
+    mpi_path = None
+    
+
+try:
+    python_path = os.environ['AMFE_PYTHON']
+    python_exec = os.path.join(python_path,'python').replace('"','')
+except:
+    print("Warning! Using python in global path")
+    python_path = None
+    python_exec = 'python'
 
 class FetiSolver():
     
-    def linear_static(my_system,log = False):
+    def linear_static(my_system,log = False, directory='temp'):
         
         domain = my_system.domain
         domain.split_in_partitions()
@@ -84,8 +101,9 @@ class FetiSolver():
     
         # saving object to pass to MPIfetisolver
         
-        directory = 'temp'
+        #directory = 'temp'
         filename = 'system.aft'
+        run_file_path = 'run_mpi_solver.bat'
         file_path = os.path.join(directory,filename)
         try:
             os.stat(directory)
@@ -95,31 +113,60 @@ class FetiSolver():
         
         save_object(my_system, file_path)
         python_solver_file = amfe_dir('amfe\MPIfetisolver.py')
-        mpi_exec = os.path.join(mpi_path,'mpiexec').replace('"','')
-        
-        command = 'cmd /c "'+ mpi_exec + '" -l -n ' + str(num_partitions+1) + ' python '+ python_solver_file + ' ' + \
-                    filename + ' ' + directory 
+
+        logging.info('######################################################################')
+        logging.info('###################### SOLVER INFO ###################################')
+        logging.info('MPI exec path = %s' %mpi_exec )
+        logging.info('Python exec path = %s' %python_exec )
+
+        command = '"' + mpi_exec + '" -l -n ' + str(num_partitions+1) + ' "' + python_exec + '"  "' + \
+                  python_solver_file + '" ' + filename 
         
         # export results to a log file called amfeti_solver.log
         if log:
             command += '>amfeti_solver.log'
         
-        print(command)
-        output = subprocess.run(command, shell=False, stdout=subprocess.PIPE, 
-                                universal_newlines=True)
-    
-        print(os.getcwd())
+        
+
+        # writing bat file with the command line
+        local_folder = os.getcwd()
+        os.chdir(directory)
+        run_file = open(run_file_path,'w')
+        run_file.write(command)
+        run_file.close()
+
+        logging.info('Run directory = %s' %os.getcwd())
+        logging.info('######################################################################')
+
+        # executing bat file
+        try:    
+            subprocess.call(run_file_path)
+            os.chdir(local_folder)
+            
+        except:
+            os.chdir(local_folder)
+            logging.error('Error during the simulation.')
+            return None
+
         
         # loading results from subdomain *.are file
         subdomains_dict = {}
         for i in partitions_list:
-            res_path = os.path.join(directory, str(i) + '.are')
-            sub_i = load_obj(res_path)
-            subdomains_dict[i] = sub_i
+            try:
+                res_path = os.path.join(directory, str(i) + '.are')
+                sub_i = load_obj(res_path)
+                subdomains_dict[i] = sub_i
+            except:
+                logging.warning('WARNING! It was not possible to read %i.are file.\n' + \
+                'Make sure you have python and mpiexec installed.' %i)
+                return None
         
         # loading solver class
         sol_path = os.path.join(directory,'solver.sol')
         sol = load_obj(sol_path)
+
+
+        subdomains_dict, sol = FetiSolver.reading_results(partitions_list,directory)
 
         
         # append feti subdomains to system instance
@@ -136,6 +183,40 @@ class FetiSolver():
         
         return sol.residual
     
+    def reading_results(partitions_list,directory,solver_file = 'solver.sol' ):
+        ''' This method loads results from subdomain *.are files
+
+        argument:
+            partitions_list : list
+                partitions list to be read
+
+            directory : str
+                path are the *.are are stored
+
+        return 
+            subdomains_dict : dict
+                dictionary with FETIsubdomains objecties
+            sol : ParallelSolver obj
+                object containing solver informations
+        '''
+        subdomains_dict = {}
+        for i in partitions_list:
+            try:
+                res_path = os.path.join(directory, str(i) + '.are')
+                sub_i = load_obj(res_path)
+                subdomains_dict[i] = sub_i
+            except:
+                logging.warning('WARNING! It was not possible to read %i .are file.\n' + \
+                'Make sure you have python and mpiexec installed.' %i)
+                return None
+        
+        # loading solver class
+        sol_path = os.path.join(directory,solver_file)
+        sol = load_obj(sol_path)
+        return subdomains_dict, sol
+
+
+
     def average_displacement_calc(my_system,subdomains_dict):
         ''' This function calculates the average displacement of the whole domain
         based on the displacement of local subdomains
@@ -182,6 +263,7 @@ class FETIsubdomain(Assembly):
         amfe_mesh = self.__set_amfe_mesh__()
         self.dual_force_dict = {}
         self.G_dict = {}
+        self.B_dict = {}
         self.total_dof = amfe_mesh.no_of_dofs
         self.null_space_force = None
         
@@ -193,7 +275,18 @@ class FETIsubdomain(Assembly):
         
         self.preallocate_csr()
         self.compute_element_indices()
-
+        self.compute_cholesky_boolean = False
+        
+        self.cholesky_tolerance = 1.0E-6
+        
+    def set_cholesky_tolerance(self, tolerance):
+        ''' set cholesky tolerance
+        
+        argument    
+            tolerance : float
+        '''
+        self.cholesky_tolerance = tolerance       
+        
     def calc_local_indices(self):        
     
         node_list = self.submesh.parent_mesh.nodes
@@ -468,12 +561,14 @@ class FETIsubdomain(Assembly):
         return self.displacement
 
     def compute_cholesky_decomposition(self):
+        ''' Compute cholesky decomposition
+        '''
         K, fext = self.assemble_k_and_f_neumann()
         K, fint = self.assemble_k_and_f()
             
         self.insert_dirichlet_boundary_cond()
-            
-        U, idf, R = cholsps(K)            
+        tol = self.cholesky_tolerance
+        U, idf, R = cholsps(K,tol)            
         self.null_space = R 
             
         # store cholesky with free pivots = 0
@@ -499,6 +594,7 @@ class FETIsubdomain(Assembly):
             self.null_space_force = None
             Ui = U
     
+        self.compute_cholesky_boolean = True
         return Ui,idf,R
         
         
@@ -510,17 +606,13 @@ class FETIsubdomain(Assembly):
             Ui,idf,R = self.compute_cholesky_decomposition()
             self.null_space_size  = len(idf)
             self.null_space = R
-            K, fext = self.assemble_k_and_f_neumann()
-            K, fint = self.assemble_k_and_f()            
-            fexti = fext.copy()
-            
-            if idf:
-                # store all G in G_dict
-                for key in self.B_dict:
-                    self.G_dict[key] = -self.B_dict[key].dot(R)
+       
+            fexti = self.force.copy()
+            finti = self.internal_force.copy()
+            total_f = fexti + finti
 
             # remove this command in the future
-            self.calc_dual_force(Ui,fexti)
+            self.calc_dual_force(Ui,total_f)
                             
         elif solver_opt=='svd': 
             
@@ -536,8 +628,14 @@ class FETIsubdomain(Assembly):
     def calc_dual_force(self,Ui,fexti):
         # calculate the dual force B*Kpinv*f            
         u_hat = scipy.linalg.cho_solve((Ui,False),fexti)
-        self.u_hat = np.matrix(u_hat).T
-            
+        m, n =  u_hat.shape
+
+        # handle u_dat shapes
+        if n>m:
+            self.u_hat = np.matrix(u_hat).T
+        else:
+            self.u_hat = u_hat
+
         for (sub_id,nei_id) in self.B_dict: 
             Bi = self.B_dict[sub_id,nei_id].todense()
             self.dual_force_dict[sub_id,nei_id] = np.matmul(Bi,self.u_hat)
@@ -625,6 +723,36 @@ class FETIsubdomain(Assembly):
                 
         return K,f    
     
+    def calc_G_dict(self):
+        ''' this function assembles G_dict 
+        
+        return 
+         G_dict : dict
+            dictionary with local G matrix
+        '''
+        # geting subdomain B_dict
+        if not self.B_dict: 
+            B_dict = self.assemble_interface_boolean_matrix()
+        else:
+            B_dict = self.B_dict 
+        
+        # compute null space and cholesky decomposition
+        if not self.compute_cholesky_boolean:
+            self.calc_null_space()
+            
+        R = self.null_space
+        # store all G in G_dict
+        for key in B_dict:
+            if self.zero_pivot_indexes:
+                self.G_dict[key] = -B_dict[key].dot(R)
+                n_rows,n_cols = self.G_dict[key].shape
+                logging.info('Creating G_dict(%i,%i) with interface dof = %i and null space size = %i' %(key[0],key[1],n_rows,n_cols))
+            else:
+                self.G_dict[key] = None
+            
+        return self.G_dict
+
+
     def assemble_primal_schur_complement(self,type='schur'):
         
 
@@ -688,7 +816,8 @@ class Master():
         self.subdomain_keys = []
         self.Bi_dict = {}
         self.displacement_dict = {}
-    
+
+        
     def append_subdomain_keys(self,sub_key):
         
         key_list = self.subdomain_keys
@@ -700,6 +829,7 @@ class Master():
         
         self.subdomain_keys.sort()
         
+
     
     def appendGtG_row(self,G_row,key): 
     
@@ -784,8 +914,6 @@ class Master():
                         self.lambda_id_dict[lambda_key_nei] = columns
                         self.interface_pair_list.append(lambda_key)
                         count_dof += dof_int
-                    
-                    
                     
                     G[rows,columns.min():columns.max()+1] = Gij.T           
                     flag = 1
@@ -919,15 +1047,13 @@ class Master():
         
     
     def assemble_GtG(self):
-    # solve course grid
-    
+        '''Assemble global GtG'''
         # initalize global G'G
         n = self.course_grid_size
         GtG = np.zeros([n,n])
         # assemple G'G
         key_list = self.subdomain_keys
-        
-                
+
         offset = 0
         offset_list = []
         for i,key in enumerate(key_list):
@@ -963,6 +1089,10 @@ class Master():
             self.d_hat_dict[key] = d_hat_dict[key]
             
     def assemble_global_d_hat(self):
+        ''' Assemble global d_hat where each subdomain ith 
+        has local dict as d_hat(i,j) = B(i,j)*u_hat(i)
+        where u_hat is defined as: u_hat = inv(K)*[f + B*lambda]
+        '''
         
         key_list = self.subdomain_keys
         
@@ -984,7 +1114,6 @@ class Master():
                     except:
                         pass
                     
-        
         return d_hat
     
     def solve_lambda_im(self):
@@ -992,20 +1121,26 @@ class Master():
         # solve lambda im
         # lambda_im = G'*(G'*G)^-1*e
         GtG = self.assemble_GtG()
-        print('GtG')
-        print(GtG)
+        if len(GtG)==0:
+            logging.warning('Course Grid size equal 0!')
+            return None
+            
+        logging.info('Course Grid size equal %i by %i!' %GtG.shape)
+            
+        logging.info('GtG')
+        logging.info(GtG)
         
         B = self.assemble_global_B()
-        print('B')
-        print(B)
+        logging.debug('B')
+        logging.debug(B)
         
         G = self.assemble_G()
-        print('G')
-        print(G)
+        #logging.info('G')
+        #logging.info(pd.DataFrame(G))
         
         e = self.null_space_force
-        print('e')
-        print(e)
+        logging.info('e')
+        logging.info(pd.DataFrame(e))
         
         Ug, idf, R = cholsps(GtG)        
         Ug[idf,:] = 0.0
@@ -1017,9 +1152,6 @@ class Master():
         
         lambda_im = np.matmul(G,aux1)
         
-        
-        #GtGinv = np.linalg.inv(GtG)
-        #lambda_im = np.matmul(G,np.matmul(GtGinv,e))
         
         self.lambda_im = lambda_im
         self.lambda_ker = np.matrix(np.zeros(len(lambda_im))).T
@@ -1039,8 +1171,6 @@ class Master():
         where P = I - G(G'G)G'
         returns w = Pr
         '''
-        
-        
         GtG = self.GtG
         G = self.G
         
@@ -1053,8 +1183,6 @@ class Master():
         Gd_hat[idf] = 0.0
         
         alpha_hat = scipy.linalg.cho_solve((Ug,False),Gd_hat)
-        
-        #alpha_hat = np.linalg.solve(GtG,Gd_hat)
         
         w = r - np.matmul(G,alpha_hat)
         
