@@ -21,9 +21,9 @@ import numpy as np
 import scipy.sparse as sparse
 import scipy
 import logging
+import pandas as pd
 
-
-logging.basicConfig(level=logging.INFO)
+#logging.basicConfig(level=logging.INFO)
 
 def run_command(cmd):
     """given shell command, returns communication tuple of stdout and stderr"""
@@ -32,7 +32,8 @@ def run_command(cmd):
                             stderr=subprocess.PIPE, 
                             stdin=subprocess.PIPE).communicate()
 
-
+                            
+                            
 # Subdomain level
 def subdomain_i(sub_id):    
     submesh_i = domain.groups[sub_id]
@@ -79,7 +80,7 @@ def create_GtG_rows(Gi_dict,Gj_dict,sub_id):
 def exchange_info(sub_id,master,master_append_func,var,partitions_list):
     ''' This function exchange info (lists, dicts, arrays, etc) with the 
     neighbors subdomains. Every subdomain has a master objective which receives 
-    the info and to some calculations based on it.
+    the info and do some calculations based on it.
     
     Inpus:
         sub_id: id of the subdomain
@@ -102,7 +103,7 @@ def exchange_info(sub_id,master,master_append_func,var,partitions_list):
         master_append_func_list = master_append_func
     
     if len(var)!=len(master_append_func):
-        logging.debug('Error exchaning information among subdomains')
+        logging.warning('Error exchanging information among subdomains')
         return None
     
     for var,master_append_func in zip(var_list,master_append_func_list):
@@ -117,7 +118,7 @@ def exchange_info(sub_id,master,master_append_func,var,partitions_list):
                     master_append_func(nei_var)
              
                 except:       
-                    master_append_func(nei_var,partition_id)            		        		
+                    master_append_func(nei_var,partition_id)
             else:
                 try:   
                     master_append_func(var)
@@ -163,7 +164,6 @@ def subdomain_apply_F(sub_i,lambda_id_dict,pk):
     # sending local h for master 
     return local_h_dict
         
-
 
 def global_apply_F(master,sub_i,lambda_id_dict,pk):
     
@@ -240,129 +240,262 @@ def beta_calc(k,y_dict=None,w_dict=None):
         return beta
         
         
-def alpha_calc(yk,wk,pk,h):
+def alpha_calc(yk,wk,pk,Fpk):
     aux1 = yk.T.dot(wk)
-    aux2 = pk.T.dot(h)
+    aux2 = pk.T.dot(Fpk)
     
     alpha = float(aux1/aux2)
     
     return alpha
 
 
+    
+def action_of_global_F_mpi(global_lambda,master,partitions_list):
+    ''' This function apply the action of F in lambda
+    communacation among subdomain using MPI
+    '''
+    #%%%%%%%%%%%%%%% APPLYING LOCAL F  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # apply local F operations
+    local_h_dict = sub_i.apply_local_F(lambda_im, master.lambda_dict)
+    master.append_h(local_h_dict)
+    #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    #%%%%%%%%%%% EXCHANGE INFORMATION WITH ALL SUBDOMAIN  %%%%%%%%%%%%
+    master_func_list = [master.append_h]
+    var_list = [local_h_dict]
+    exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
+    #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    
+    #%%%%%%%%%%%%% ASSEMBLE GLOBAL F*Lambda  %%%%%%%%%%%%%%%%%%%
+    Fim = master.assemble_h() # Fpk = B*Kpinv*B'*pk
+    logging.debug('Fim')
+    logging.debug(Fim)
+    return Fim
+    
+def assemble_global_d_mpi(master,partitions_list):        
+    #%%%%%%%%%%% EXCHANGE INFORMATION WITH ALL SUBDOMAIN  %%%%%%%%%%%%
+    dual_force_dict = sub_i.calc_dual_force_dict()
+    master_func_list = [master.append_d_hat]
+    var_list = [dual_force_dict]
+    exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
+    #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+    d = master.assemble_global_d_hat()
+    logging.debug('d')
+    logging.debug(d)
+    return d
+    
+def projection_action_mpi(rk,master):
+    ''' Project action on rk
+    
+    '''
+    wk, alpha_hat = master.solve_corse_grid(rk)
+    return wk
+    
+def PCGP(F_action,residual,Projection_action=None,lambda_init=None,
+        Precondicioner_action=None,tolerance=1.e-10,max_int=500):
+        ''' This function is a general interface for PCGP algorithms
+
+        argument:
+        F_action: callable function
+        callable function that acts in lambda
+
+        residual: np.array
+        array with initial interface gap
+
+        lambda_init : np.array
+        intial lambda array
+
+        Projection_action: callable function
+        callable function to project the residual
+
+        Precondicioner_action : callable function
+        callable function to atcs as a preconditioner operator
+        in the array w
+
+        tolerance: float
+        convergence tolerance
+
+        max_int = int
+        maximum number of iterations
+
+        return 
+        lampda_pcgp : np.array
+            last lambda
+        rk : np.array
+            last projected residual
+        proj_r_hist : list
+            list of the history of the norm of the projected  residuals
+        lambda_hist : list
+            list of the 
+
+        '''
+         
+        interface_size = len(residual)
+         
+        if lambda_init is None:
+            lampda_pcgp = np.zeros(interface_size)
+        else:
+            lampda_pcgp = lambda_init
+         
+        if Precondicioner_action is None:
+            Precond = np.eye(interface_size,interface_size).dot
+        else:
+            Precond = Precondicioner_action
+
+        if Projection_action is None:
+            P = np.eye(interface_size,interface_size).dot
+        else:
+            P = Projection_action
+            
+        F = F_action
+
+        # initialize variables
+        beta = 0.0
+        yk1 = np.zeros(interface_size)
+        wk1 = np.zeros(interface_size)
+        proj_r_hist = []
+        lambda_hist = []
+        rk = residual
+        for k in range(max_int):
+            wk = P(rk)  # projection action
+            
+            norm_wk = np.linalg.norm(wk)
+            proj_r_hist.append(norm_wk)
+            if norm_wk<tolerance:
+                logging.info('PCG has converged after %i' %(k+1))
+                break
+
+            zk = Precond(wk)
+            yk = P(zk)
+
+            if k>1:
+                beta = yk.T.dot(wk)/yk1.T.dot(wk1)
+            else:
+                pk1 = yk
+
+            pk = yk + beta*pk1
+            Fpk = F(pk)
+            alpha_k = alpha_calc(yk,wk,pk,Fpk)
+            
+            lampda_pcgp = lampda_pcgp + alpha_k*pk
+            lambda_hist.append(lampda_pcgp)
+
+            rk = rk - alpha_k*Fpk
+            
+            # set n - 1 data
+            yk1 = yk[:]
+            pk1 = pk[:]
+            wk1 = wk[:]
+
+        return lampda_pcgp, rk, proj_r_hist, lambda_hist
+        
+    
 class ParallelSolver():
     def __init__(self):
         
         self.residual = []
+        self.lampda_im = []
+        self.lampda_ker = []
         
-    def mpi_solver(self,sub_domain,num_partitions,n_int = 500, tol = 1.0E-6):
+    def mpi_solver(self,sub_domain,num_partitions, n_int=500, cholesky_tolerance=1.0E-6):
         ''' solve linear FETI problem with PCGP with parcial reorthogonalization
         '''
         
         if rank<=num_partitions and rank>0:
-            
             global sub_id
             sub_id = rank
-            logging.debug("%%%%%%%%%%%%%%%%%%% START %%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
-            logging.debug("Solving domain %i from size %i" %(rank,num_partitions))   
+            logging.info("%%%%%%%%%%%%%%%%%%% START %%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
+            logging.info("Solving domain %i from size %i" %(rank,num_partitions))   
             sub_i = amfe.FETIsubdomain(sub_domain.groups[sub_id])
-            sub_i.set_cholesky_tolerance =  tol
+            sub_i.set_cholesky_tolerance =  cholesky_tolerance
             Gi_dict = sub_i.calc_G_dict()
-            #sub_i, Gi_dict = subdomain_i(sub_id) 
-            logging.debug('Domain', str(sub_id) , 'G_dict =',Gi_dict.keys())  
+            
+            # append local dofs info in master to build global indexation matrices
+            subdomain_interface_dofs_dict = sub_i.num_of_interface_dof_dict
+            subdomain_null_space_size = sub_i.null_space_size
+            local_info_dict =  master.append_partition_dof_info_dicts(sub_id,
+                                                                      subdomain_interface_dofs_dict,
+                                                                      subdomain_null_space_size)
 
-            # sending message for neighbors
+            #%%%%%%%%%% START SENDING AND RECEIVING G MATRIX %%%%%%%%%%%%%%%%%%%
+            # sending G_dict for neighbors
             for nei_id in sub_i.submesh.neighbor_partitions:
-                logging.debug("\nSending message from %i to neighbor %i" %(sub_id,nei_id))
+                logging.info("\nSending message from %i to neighbor %i" %(sub_id,nei_id))
                 if (sub_id,nei_id) in Gi_dict: 
                     comm.send(Gi_dict[sub_id, nei_id], dest=nei_id)
             
-            master.subdomain_keys = partitions_list
-            master.appendG(Gi_dict,sub_id)
-            
-            # reciving message for neighbors
+            # receiving message for neighbors
             Gj_dict = {}
             for nei_id in sub_i.submesh.neighbor_partitions:
                 logging.debug("\nReceiving message at subdomain %i from neighbor %i" %(sub_id,nei_id))
                 Gj_dict[nei_id,sub_id]= comm.recv(source=nei_id)
-                master.appendG(Gj_dict,nei_id)
-                        
-            logging.debug(Gj_dict.keys())   
+            
+            #%%%%%%%%%% END ENDING AND RECEIVING G MATRIX %%%%%%%%%%%%%%%%%%%%
+            
+            #%%%%%%%%%% START APPENDING G MATRIX IN MASTER %%%%%%%%%%%%%%%%%%%
+            # append local G_dict and neighbors G_dict
+            master.append_G_dict(Gi_dict)
+            master.append_G_dict(Gj_dict)
+                     
+            logging.debug('G_dict')
+            logging.debug(master.G_dict)
+            
+            #%%%%%%%%%% END APPENDING G MATRIX IN MASTER %%%%%%%%%%%%%%%%%%%%%
+            
+            
+            #%%%%%%%%%% COMPUTING GtG_rows  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            # append neighbor G_dict to subdomain
+            for nei_key, sub_key in Gj_dict:
+                Gj = Gj_dict[nei_id,sub_id]
+                sub_i.append_neighbor_G_dict(nei_key,Gj)
             
             # creating GtG rows
-            GtG_rows_dict = create_GtG_rows(Gi_dict,Gj_dict,sub_id)
+            GtG_rows_dict = sub_i.create_GtG_rows()
             null_space_size = sub_i.null_space_size
             
-            logging.info('Local GtG rows')
-            logging.info(GtG_rows_dict.keys())
+            logging.debug('Local GtG rows')
+            logging.debug(GtG_rows_dict.keys())
                     
-            master_func_list = [master.appendGtG_row, master.append_local_B,
+            #%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    
+            #%%%%%%%%%%% EXCHANGE INFORMATION WITH ALL SUBDOMAIN  %%%%%%%%%%%%
+            # List of function in master to append variables
+            master_func_list = [master.appendGtG_row, 
+                                master.append_G_dict,
+                                master.append_partition_dof_info_dicts,
                                 master.append_null_space_force]
             
-            var_list = [GtG_rows_dict,sub_i.B_dict,sub_i.null_space_force]
+            # variables to be appended in master
+            var_list = [GtG_rows_dict,
+                        master.G_dict,
+                        (sub_id,subdomain_interface_dofs_dict,subdomain_null_space_size),
+                        sub_i.null_space_force]
             
+            # exchange information among all partitions
             exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
             
-        
             logging.debug('Master GtG keys')
             logging.debug(master.GtG_row_dict.keys())    
             
-            # logging.debug local rows
-            logging.debug('Local rows for each subdomain')
-            for key in master.GtG_row_dict:
-                logging.debug(master.GtG_row_dict[key])   
-        
-            logging.debug('B dict')
-            logging.debug(master.Bi_dict.keys())   
-            for key in master.Bi_dict:
-                logging.debug(master.Bi_dict[key].todense())
-            
-            logging.debug('G dict')
-            logging.debug(master.G_dict.keys())   
-            for key in master.G_dict:
-                logging.debug(master.G_dict[key])
-                
-            logging.debug('total interface dof %i' %master.total_interface_dof)
-            logging.debug('total dof %i' %master.total_dof)
-            logging.debug('Null space size %i' %master.total_nullspace_dof)
-            logging.debug('Null space size %i' %master.course_grid_size)
+            logging.info('total interface dof %i' %master.total_interface_dof)
+            logging.info('Null space size %i' %master.total_nullspace_dof)
+            #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             
             
-            lambda_im_dict = master.solve_lambda_im()
-            lambda_im = master.lambda_im
+            #%%%%%%%%%%%%%%% SOLVING SELF EQUILIBRIUM LAMBDA IM  %%%%%%%%%%%%%%
+            lambda_im = master.solve_lambda_im()
+            self.lampda_im = lampda_im
             lambda_ker = master.lambda_ker
-            
-            logging.debug('master.lambda_im')
-            logging.debug(master.lambda_im)
-            
-            logging.debug('lambda_im_dict')
-            logging.debug(lambda_im_dict)
-            
-            lambda_id_dict = master.lambda_id_dict
-            logging.debug('lambda_id_dict')
-            logging.debug(lambda_id_dict)
-            
-            # apply local F operations
-            local_h_dict = subdomain_apply_F(sub_i,lambda_id_dict,lambda_im)
-            logging.debug('local_h_dict.keys()')
-            logging.debug(local_h_dict.keys())
-            for key in local_h_dict:
-                logging.debug(local_h_dict[key])
+            #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             
             
+            #%%%%%%%%%%%%%%% APPLYING LOCAL F  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            Fim = action_of_global_F_mpi(global_lambda,master,partitions_list)
+            d = assemble_global_d_mpi(master,partitions_list)
             
-            master_func_list = [master.append_h, master.append_d_hat]
-            
-            var_list = [local_h_dict, sub_i.dual_force_dict]
-            
-            exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
-            
-            Fim = master.assemble_h() # Fpk = B*Kpinv*B'*pk
-            logging.debug('Fim')
-            logging.debug(Fim)
-            
-            d = master.assemble_global_d_hat() # dual force global assemble
-            logging.debug('d')
-            logging.debug(d)
+
             
             # init precond
             n = len(lambda_ker)
@@ -373,92 +506,17 @@ class ParallelSolver():
             y_dict = {}
             pk1 = np.zeros([n,1])
             
-            
             # initial residual
             r0 = d - Fim
-            rk = r0
-            
             #---------------------------------------------------------------------
-            # PCPG algorithm        
-            for i in range(n_int):
-            
-                # check norm of rk
-                norm_rk = np.linalg.norm(rk)
-                logging.debug('iteration %i, norm rk = %f' %(i,norm_rk))
-                
-                # solve course grid
-                wk, alpha_hat = master.solve_corse_grid(rk) # assemble local d_hats and solve P*F*d_hat
-                norm_wk = np.linalg.norm(wk)
-                self.residual.append(norm_wk)
-                #logging.debug('wk =', wk.T)
-                
-                logging.debug('iteration %i, norm wk = %0.2e /n' %(i,norm_wk))
-                if norm_wk < tol:
-                    break
-                
-                #------------------------------------------------------------------
-                # calculation for the preconditioning
-                
-                sub_i.solve_local_displacement(lambda_im, lambda_id_dict)
-                logging.debug('u_bar')
-                logging.debug(sub_i.u_bar)
-                
-                #------------------------------------------------------------------
-                
-                yk = np.matmul(precond,wk)
-                
-                # story past iterations
-                if i>0:
-                    # append w and y to dict
-                    w_dict[1] = w_dict[0].copy()
-                    y_dict[1] = w_dict[0].copy()
-                    w_dict[0] = wk
-                    y_dict[0] = yk
-                    
-                else:
-                    # append w and y to dict
-                    w_dict[0] = wk 
-                    y_dict[0] = yk
-                
-                # calc beta
-                beta = beta_calc(i,y_dict,w_dict)
-                logging.debug('beta = ', beta)
-                
-                # calc pk
-                pk = yk + beta*pk1
-                logging.debug('pk', pk.T)
-                
-                # this step depends on comunication of subdomains
-                # calc local Fpk
-                local_h_dict = subdomain_apply_F(sub_i,lambda_id_dict,pk)
-                # append local F operation into master instance
-                
-                master_func_list = [master.append_h, master.append_d_hat]
-            
-                var_list = [local_h_dict, sub_i.dual_force_dict]
-            
-                exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
-                
-                            
-                h = master.assemble_h() # Fpk = B*Kpinv*B'*pk
-                logging.debug('h = ', h.T)
-                
-                # calc alpha k # do it in parallel
-                alpha = alpha_calc(yk,wk,pk,h)
-                logging.debug('alpha =', alpha)
-            
-                # update lambda_ker and r
-                delta_rk = alpha*h
-                lambda_ker = lambda_ker - alpha*pk
-                rk = rk - delta_rk
-                
-                # update variables
-                pk1 = pk
+            # PCPG algorithm     
+            F = lambda x : action_of_global_F_mpi(x,master,partitions_list)
+            P = lambda rk : projection_action_mpi(rk,master)
+            lambda_ker, last_res, proj_r_hist, lambda_hist = amfe.PCGP(F,r0,P)
                 
             # lagrange multiplier solution
             lambda_sol =  lambda_im + lambda_ker
-            logging.debug('lambda_sol')
-            logging.debug(lambda_sol.T)
+
             
             # compute global error
             d = master.assemble_global_d_hat() # dual force global assemble
@@ -481,14 +539,11 @@ class ParallelSolver():
             amfe.save_object(sub_i, res_path)
             return sub_i
     
-            logging.debug("%%%%%%%%%%%%%%%%%%% END %%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
+            logging.info("%%%%%%%%%%%%%%%%%%% END %%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
             
         else:
-            logging.debug("Nothing to do on from process %i " %rank)   
+            logging.info("Nothing to do on from process %i " %rank)   
             return None
-
-
-
 
 
 if __name__ == "__main__":
@@ -516,10 +571,16 @@ if __name__ == "__main__":
     my_system = amfe.load_obj(case_path)
     domain = my_system.domain
     # Instanciating Global Master class to handle Coarse problem
-    master = amfe.Master()
+    
     
     num_partitions = len(domain.groups)
     partitions_list = np.arange(1,num_partitions+1)
+    
+    # instantiating master to handle global information
+    master = amfe.Master()
+    master.subdomain_keys = partitions_list
+    
+    # instantiating parallel solver
     parsolver = ParallelSolver()
     sub_i = parsolver.mpi_solver(domain,num_partitions)
     

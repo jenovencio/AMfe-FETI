@@ -215,8 +215,6 @@ class FetiSolver():
         sol = load_obj(sol_path)
         return subdomains_dict, sol
 
-
-
     def average_displacement_calc(my_system,subdomains_dict):
         ''' This function calculates the average displacement of the whole domain
         based on the displacement of local subdomains
@@ -248,26 +246,39 @@ class FetiSolver():
         displacement = displacement/div
         return displacement
 
-
+        
+        
 class FETIsubdomain(Assembly):
     def __init__(self,submesh_obj):
         
-        self.null_space_size = 0
+        
         self.submesh = submesh_obj
         self.elem_start_index = self.submesh.parent_mesh.node_idx
         self.elem_last_index = len(self.submesh.parent_mesh.el_df.columns)
         self.key = self.submesh.key
         self.global_elem_list = self.submesh.elements_list
-        
+        self.neighbor_partitions = self.submesh.neighbor_partitions
         self.calc_local_indices()
         amfe_mesh = self.__set_amfe_mesh__()
+        
+        # internal variables
+        self.total_dof = amfe_mesh.no_of_dofs
+        self.displacement = np.zeros(self.total_dof)
+        
+        # internal operators variables
+        self.stiffness = None
+        self.total_force = None
         self.dual_force_dict = {}
         self.G_dict = {}
         self.B_dict = {}
-        self.total_dof = amfe_mesh.no_of_dofs
-        self.null_space_force = None
+        self.neighbor_G_dict = {}
+        self.GtG_rows_dict = {}
         
-        self.displacement = np.zeros(self.total_dof)
+        # null space variables
+        self.null_space_force = None
+        self.zero_pivot_indexes = []
+        self.null_space_size = 0
+        self.null_space = None
         
         super(FETIsubdomain, self).__init__(amfe_mesh)
         
@@ -275,18 +286,38 @@ class FETIsubdomain(Assembly):
         
         self.preallocate_csr()
         self.compute_element_indices()
+        
+        
+        # internal decomposition variables
+        self.solver_opt = 'cholsps'
+        self.cholesky_tolerance = 1.0E-6
         self.compute_cholesky_boolean = False
         
-        self.cholesky_tolerance = 1.0E-6
+        self.local_interface_nodes_dict = {}
+        self.lambda_global_indices = []
+        self.local_interface_dofs_dict = {}
+        self.local_interface_dofs_list = []
+        self.local_interior_dofs_list = []
+        self.num_of_interface_dof_dict = {}
+        self.num_of_interface_dof = 0
         
-    def set_cholesky_tolerance(self, tolerance):
+        self.create_interface_and_interior_dof_dicts()
+        
+    def set_cholesky_tolerance(self, tolerance=1.0E-6):
         ''' set cholesky tolerance
         
         argument    
             tolerance : float
         '''
-        self.cholesky_tolerance = tolerance       
-        
+        self.cholesky_tolerance = tolerance      
+
+    def set_solver_option(self,solver_str='cholsps'):
+        ''' This function set the solver option 
+        for compute internal operator and solve linear systems
+        '''
+        self.solver_opt = solver_str
+        return self.solver_opt
+    
     def calc_local_indices(self):        
     
         node_list = self.submesh.parent_mesh.nodes
@@ -300,8 +331,7 @@ class FETIsubdomain(Assembly):
         elem_key = 0
         i = 0
         for df_key, elem_connect in connectivity.iterrows():
-            
-            
+
             elem_type = self.submesh.elem_dataframe['el_type'].iloc[elem_key]
             dof = elem_dof[elem_type]
             
@@ -330,8 +360,7 @@ class FETIsubdomain(Assembly):
                                     local_to_global_dict)
         
         self.global_interface_nodes_dict = self.submesh.interface_nodes_dict
-        
-        
+    
     def __set_amfe_mesh__(self):
         amfe_mesh = Mesh()
         
@@ -344,7 +373,6 @@ class FETIsubdomain(Assembly):
         
         # create an element object and assign a material to ech        
         my_material = self.submesh.__material__
-        
         
         # assign a material for every element
         object_series = []
@@ -389,143 +417,168 @@ class FETIsubdomain(Assembly):
                 if len(local_connectivity)>1 and bool_elem:   
                     self.mesh.neumann_connectivity.append(np.array(local_connectivity))
                     self.mesh.neumann_obj.extend([sub_obj.neumann_obj[i]])
-                
-                
+    
     def create_interface_and_interior_dof_dicts(self):
         ''' This function read the subdomain information and creates dictionaries
             with local interface nodes, local interface dof,
             local interior dofs and list with global lambda indexes
-            also compute the number of interface dofs
+            also compute the total number of interface dofs
+            and the number of dofs per neighbor
             
-            create instance variables
+            update instance variables
             self.local_interface_nodes_dict as dict
             self.local_interface_dofs_dict as dict
             self.local_interior_dofs_dict as dict
+            self.num_of_interface_dof_dict as dict
             self.lambda_global_indices as list
             self.num_of_interface_dof as int
         '''
-        
-        total_dof = self.mesh.no_of_dofs
+        total_dof = self.total_dof
         all_dofs = set(np.arange(total_dof))
-        self.local_interface_nodes_dict = {}
-        self.lambda_global_indices = []
-        self.local_interface_dofs_dict = {}
-        self.local_interface_dofs_list = []
-        self.local_interior_dofs_list = {}
-        self.num_of_interface_dof = 0
+        node_set = set()
         
         for neighbor_subdomain_key in self.submesh.interface_nodes_dict:
-            bool_sign = np.sign(neighbor_subdomain_key - self.submesh.key)
             num_interface_nodes = len(self.submesh.interface_nodes_dict[neighbor_subdomain_key])
-            total_int_dof = self.mesh.no_of_dofs_per_node*num_interface_nodes
-                
-            count = 0
-            
+
             self.local_interface_nodes_dict[neighbor_subdomain_key] = []
             self.local_interface_dofs_dict[neighbor_subdomain_key] = []
-            
-            
+            self.num_of_interface_dof_dict[neighbor_subdomain_key] = 0
             for node_id in self.submesh.interface_nodes_dict[neighbor_subdomain_key]:
                 # mapping global dof to local dofs
                 local_node_id = self.submesh.global_to_local_dict[node_id]
                 self.local_interface_nodes_dict[neighbor_subdomain_key].append(local_node_id)
                 node_dof_list = self.id_matrix[local_node_id]
                 self.local_interface_dofs_dict[neighbor_subdomain_key].extend(node_dof_list)
-                self.local_interface_dofs_list.extend(node_dof_list)        
-
-                for j,dof in enumerate(node_dof_list):                    
-                    lambda_indice = node_id*self.submesh.problem_type+j
-                    self.lambda_global_indices.append(lambda_indice)
-                    count += 1
+                self.num_of_interface_dof_dict[neighbor_subdomain_key] += len(node_dof_list)
                 
-                self.num_of_interface_dof += count
+                if node_id not in node_set:
+                    node_set.add(node_id)
+                    self.local_interface_dofs_list.extend(node_dof_list)        
+                    # create map from local dofs to global dofs
+                    init_index = node_id*self.submesh.problem_type
+                    last_index = init_index + len(node_dof_list)
+                    lambda_indice = list(range(init_index,last_index))
+                    self.lambda_global_indices.extend(lambda_indice)
+                
+            self.num_of_interface_dof += self.num_of_interface_dof_dict[neighbor_subdomain_key]
             
-            interface_dofs = set(self.local_interface_dofs_list)
-            self.local_interface_dofs_list = list(interface_dofs)
-            self.local_interior_dofs_list = list(all_dofs.difference(interface_dofs))
+        self.local_interior_dofs_list = list(all_dofs.difference(self.local_interface_dofs_list))
         
         return None
 
-                
     def assemble_interface_boolean_matrix(self):
+        ''' This function computes dictionaries of
+        Boolean Matrix per every neighbor
         
+        return
+            B_dict : dict
+                Dictionary with Boolean matrices
         
-        total_dof = self.mesh.no_of_dofs
-        self.local_interface_nodes_dict = {}
-        self.lambda_global_indices = []
-        self.local_interface_dofs_dict = {}
-        B_dict = {}
-        num_of_neighbor = 0
-        for neighbor_subdomain_key in self.submesh.interface_nodes_dict:
-            bool_sign = np.sign(neighbor_subdomain_key - self.submesh.key)
-            num_interface_nodes = len(self.submesh.interface_nodes_dict[neighbor_subdomain_key])
-            total_int_dof = self.mesh.no_of_dofs_per_node*num_interface_nodes
-                
-            B_i = sparse.lil_matrix((total_int_dof,total_dof),dtype=int) 
-            count = 0
-            
-            self.local_interface_nodes_dict[neighbor_subdomain_key] = []
-            self.local_interface_dofs_dict[neighbor_subdomain_key] = []
-            for node_id in self.submesh.interface_nodes_dict[neighbor_subdomain_key]:
-                # mapping global dof to local dofs
-                local_node_id = self.submesh.global_to_local_dict[node_id]
-                self.local_interface_nodes_dict[neighbor_subdomain_key].append(local_node_id)
-                node_dof_list = self.id_matrix[local_node_id]
-                self.local_interface_dofs_dict[neighbor_subdomain_key].extend(node_dof_list)
-                        
-                for j,dof in enumerate(node_dof_list):                    
-                    B_i[count,dof] = 1
-                    lambda_indice = node_id*self.submesh.problem_type+j
-                    self.lambda_global_indices.append(lambda_indice)
-                    count += 1
-                    
-            B_i = bool_sign*B_i
-            B_dict[self.submesh.key,neighbor_subdomain_key] = B_i
-            if num_of_neighbor>0:
-                B = sparse.vstack([B,B_i])
-            else:
-                B = B_i                
-    
-            num_of_neighbor += 1
+        '''
 
-        try:
-            n, m = np.shape(B)  
-            self.num_of_interface_dof = n             
-        except:
-            self.num_of_interface_dof = 0
-            
-        self.B_dict = B_dict    
-        return B_dict    
+        total_dof = self.total_dof
+
+        B_dict = self.B_dict
+        num_of_neighbor = 0
+        for neighbor_key in self.local_interface_dofs_dict:
+            bool_sign = np.sign(neighbor_key - self.key)
+            total_int_dof = self.num_of_interface_dof_dict[neighbor_key]
+            data = bool_sign*np.ones(total_int_dof,dtype=int)
+            columns = self.local_interface_dofs_dict[neighbor_key]
+            rows = list(range(total_int_dof))
+            B_i = sparse.coo_matrix((data,(rows,columns)),shape=(total_int_dof,total_dof)) 
+            B_dict[self.key,neighbor_key] = B_i
+
+        return self.B_dict   
                 
-    def solve_local_displacement(self, global_lambda, lambda_id_dict,solve_opt='cholsps'):
-        i = 0
+    def assemble_K_and_total_force(self):            
+        ''' This function assemble the stiffness matrix
+        and the total force vector fint+fext
+        
+        also update internal variables self.stiffness and 
+        self.force 
+        
+        return 
+            K : np.matrix
+                stiffness matrix operator
+            total_force : np.array
+                total force fint + fext
+        '''
+        
+        K, fext = self.assemble_k_and_f_neumann()
+        K, fint = self.assemble_k_and_f()
+        # getting force vector
+        fexti = self.force.copy()
+        finti = self.internal_force.copy()
+        force = fexti + finti
+        self.total_force = fexti + finti
+        return K, self.total_force
+    
+    def solve_local_displacement(self, force=None, global_lambda=None, lambda_dict={}):
+        ''' Solve local displacement given a gloval lambda vector
+        and the indexation matrix that maps global to local dofs
+        
+        arguments
+            global_lambda : np.array
+                global lambda
+                
+            lambda_dict : dict
+                dictionary which maps global lambda to
+                local lambda
+                
+            see set_solver_option to modify solver type
+                solve_opt : str
+                    solver option default = 'cholsps'
+        
+        return 
+            displacement : np.array
+                displacement of the subdomain
+        '''
+        
+        solver_opt = self.solver_opt
+        
+        if force is None:
+            force = self.force
+        
+        # convert force to the right format
+        if force.shape != (self.total_dof,):
+            force = np.array(force).flatten()
+            
+        # convert global_lambda to the right format
+        if len(global_lambda.shape) > 1:
+            global_lambda = np.array(global_lambda).flatten()
+
+            
         sub_id = self.submesh.key
+        b_bar = np.zeros(self.total_dof)
         for nei_id in self.submesh.neighbor_partitions:
-            local_id = lambda_id_dict[sub_id,nei_id]
-            Bi = self.B_dict[sub_id,nei_id].todense()    
+            if sub_id<nei_id:
+                lambda_id = (sub_id,nei_id)
+            else:    
+                lambda_id = (nei_id,sub_id)
+                
+            local_id = lambda_dict[lambda_id]
+            Bi = self.B_dict[sub_id,nei_id]   
             local_lambda = global_lambda[local_id]
             
-            b_hati = np.matmul(Bi.T,local_lambda)
-            if i == 0:
-                b_bar = b_hati
-                i = 1
-            else:
-                b_bar = b_bar + b_hati
+            b_hati = Bi.T.dot(local_lambda)
+            b_bar += b_hati
                 
-        # solving K(s)u_bar(s) = f + b(s) in order to calculte the action of F(s)
-        b = self.force - b_bar
+        # solving K(s)u_bar(s) = f - b(s) in order to calculte the action of F(s)
+        b = force - b_bar
         
-        if solve_opt=='cholsps':
-            try:
+        if solver_opt=='cholsps':
+            if self.compute_cholesky_boolean:
                 Ui = self.full_rank_upper_cholesky.todense()
-            except:
+                idf = self.zero_pivot_indexes
+            else:
                 Ui,idf,R = self.compute_cholesky_decomposition()
 
-            idf = self.zero_pivot_indexes
+            
             b[idf] = 0.0
             u_bar = scipy.linalg.cho_solve((Ui,False),b)  
         
-        elif solve_opt=='svd':
+        elif solver_opt=='svd':
             try:
                Kinv = self.psedoinverse
             
@@ -535,18 +588,17 @@ class FETIsubdomain(Assembly):
             u_bar = Kinv.dot(b)
             
         else:
-            print('Solve optiton not implement yet')
+            print('Solve option not implement yet')
         
-        self.u_bar = u_bar
-        self.displacement =np.array(u_bar).flatten()
+        self.u_bar = np.matrix(u_bar).T
+        self.displacement = np.array(u_bar).flatten()
         return self.displacement
-        
         
     def apply_rigid_body_correction(self,global_alpha, alpha_dict):
         
         sub_id = self.submesh.key
         try:
-            u_bar = self.u_bar
+            u_bar = self.displacement
         except:
             print('No displacement is defined, then no corretion can be applied. \n' \
                   'please call solve_local_displacement method before rigig correction')
@@ -555,98 +607,136 @@ class FETIsubdomain(Assembly):
             R = self.null_space
             local_id = alpha_dict[sub_id]
             local_alpha =  global_alpha[local_id]
-            u_bar += R.dot(local_alpha)
+            u_bar += np.array(R.dot(local_alpha)).flatten()
         
-        self.displacement = np.array(u_bar).flatten()
+        self.displacement = u_bar
         return self.displacement
 
     def compute_cholesky_decomposition(self):
         ''' Compute cholesky decomposition
         '''
-        K, fext = self.assemble_k_and_f_neumann()
-        K, fint = self.assemble_k_and_f()
-            
-        self.insert_dirichlet_boundary_cond()
+        # without boundary conditions
+        K, total_force = self.assemble_K_and_total_force()
+
+        # with boundary conditions
+        K, total_force = self.insert_dirichlet_boundary_cond(K,total_force)
         tol = self.cholesky_tolerance
         U, idf, R = cholsps(K,tol)            
-        self.null_space = R 
-            
+
         # store cholesky with free pivots = 0
-        self.zero_pivot_indexes = idf
         self.upper_cholesky = U
-        fexti = fext.copy()
-        self.null_space_size  = len(idf)
+
         if idf:
             # set free pivots to zero
             
-            self.null_space_force = np.matrix(-fext.T.dot(R)).T
-                                                                
             Ui = U.copy()
             Ui[idf,:] = 0.0
             Ui[:,idf] = 0.0
             Ui[idf,idf] = 1.0
-            fexti[idf] = 0.0
-
+            self.total_force[idf] = 0.0
             self.full_rank_upper_cholesky = scipy.sparse.csr_matrix(Ui)
     
         else:
             self.full_rank_upper_cholesky = scipy.sparse.csr_matrix(U)
-            self.null_space_force = None
             Ui = U
     
         self.compute_cholesky_boolean = True
         return Ui,idf,R
         
+    def calc_null_space(self):
+        ''' compute null space null(K)
         
-    def calc_null_space(self,solver_opt = 'cholsps'):
-
-        
+        '''
+        # getting local solver from obj variable
+        solver_opt = self.solver_opt
         if solver_opt=='cholsps':
-            
             Ui,idf,R = self.compute_cholesky_decomposition()
-            self.null_space_size  = len(idf)
-            self.null_space = R
-       
-            fexti = self.force.copy()
-            finti = self.internal_force.copy()
-            total_f = fexti + finti
-
-            # remove this command in the future
-            self.calc_dual_force(Ui,total_f)
-                            
-        elif solver_opt=='svd': 
+            self.zero_pivot_indexes = idf
             
-            self.calc_pinv_and_null_space()
+        elif solver_opt=='svd': 
+            Kinv,R = self.calc_pinv_and_null_space()
             
         else:
             print('Not implemented')
+            return mp.matrix([])
+        
+        self.set_null_space(R)
+        return R
+
+    def set_null_space(self,R):
+        ''' This function sets the subdomain null_space
+        
+        
+        arguments
+            R : np.matrix
+                matrix with subdomain null space
+            
+            return None
+        '''
+        
+        if R is not None:
+            try:
+                force = self.total_force
+                if self.null_space_size>0:
+                    self.null_space_force = np.matrix(-force.T.dot(R)).T
+            except:
+                pass
+        else:
+            R = np.matrix([])
+        
+        self.null_space_size  = R.shape[1]
+        self.null_space = R
+        
+        return R
+        
+    def get_null_space(self):
+        ''' this function return
+        subdomain null space
+        '''
+        return self.null_space
+        
+    def calc_dual_force_dict(self):
+        ''' Compute local dual force 
+        which is equivalent to a displacement 
+        in the interface
+        
+        K_i u_i = f_i
+        
+        d_{(i,j)} = B_{(i,j)}*u_i
+        '''
+        
+        solver_opt = self.solver_opt
+        
+        # getting force vector
+        force = self.total_force
+        if force.shape != (self.total_dof,):
+            force = np.array(force).flatten()
+        
+        if solver_opt=='cholsps':
+            if self.compute_cholesky_boolean:
+                Ui = self.full_rank_upper_cholesky.todense()
+            else:
+                Ui,idf,R = self.compute_cholesky_decomposition()
+            
+            # calculate the dual force B*Kpinv*f            
+            u_hat = scipy.linalg.cho_solve((Ui,False),force)
+
+            for (sub_id,nei_id) in self.B_dict: 
+                Bi = self.B_dict[sub_id,nei_id]
+                self.dual_force_dict[sub_id,nei_id] = Bi.dot(u_hat)
+
+        else:
+            logging.error('Solver type not implemented')
             return None
             
-        return self.null_space
-
-
-    def calc_dual_force(self,Ui,fexti):
-        # calculate the dual force B*Kpinv*f            
-        u_hat = scipy.linalg.cho_solve((Ui,False),fexti)
-        m, n =  u_hat.shape
-
-        # handle u_dat shapes
-        if n>m:
-            self.u_hat = np.matrix(u_hat).T
-        else:
-            self.u_hat = u_hat
-
-        for (sub_id,nei_id) in self.B_dict: 
-            Bi = self.B_dict[sub_id,nei_id].todense()
-            self.dual_force_dict[sub_id,nei_id] = np.matmul(Bi,self.u_hat)
-
     def calc_pinv_and_null_space(self,solver_opt='svd',tol=1.0E-8):
         
         if solver_opt=='svd':
-            K, fext = self.assemble_k_and_f_neumann()
-            K, fint = self.assemble_k_and_f()
-            self.insert_dirichlet_boundary_cond()
-            
+            # without boundary conditions
+            K, total_force = self.assemble_K_and_total_force()
+
+            # with boundary conditions
+            K, total_force = self.insert_dirichlet_boundary_cond(K,total_force)
             K = K.todense()
             V,val,U = np.linalg.svd(K)
             
@@ -666,8 +756,8 @@ class FETIsubdomain(Assembly):
             last_idx = idx[-1]
             R = V[:,last_idx+1:]
             self.psedoinverse = Kinv
-            self.null_space = R 
-            self.null_space_size  = R.shape[1]
+            #self.null_space = R 
+            #self.null_space_size  = R.shape[1]
         else:
             print('Solver option not implemented')
             return None
@@ -743,8 +833,9 @@ class FETIsubdomain(Assembly):
         R = self.null_space
         # store all G in G_dict
         for key in B_dict:
-            if self.zero_pivot_indexes:
-                self.G_dict[key] = -B_dict[key].dot(R)
+            if self.null_space_size>0:
+                Bi = B_dict[key]
+                self.G_dict[key] = -Bi.dot(R)
                 n_rows,n_cols = self.G_dict[key].shape
                 logging.info('Creating G_dict(%i,%i) with interface dof = %i and null space size = %i' %(key[0],key[1],n_rows,n_cols))
             else:
@@ -752,10 +843,8 @@ class FETIsubdomain(Assembly):
             
         return self.G_dict
 
-
     def assemble_primal_schur_complement(self,type='schur'):
         
-
         try:
             ii_id = self.local_interior_dofs_list
             bb_id = self.local_interface_dofs_list
@@ -792,16 +881,137 @@ class FETIsubdomain(Assembly):
         #C = sparse.bmat([[Block_zero, None], [None, Sbb]])
         C[np.ix_(bb_id, bb_id)] = Sbb
         return C
+
+    def append_neighbor_G_dict(self, nei_key, G_matrix):
+        ''' This function append neighbor_G_dict
+        to neighbor_G_dict internal variables
         
+        argument:
+            nei_key : int
+                neighbor id
+            G_matrix : np.matrix
+                neighbor G matrix
+        
+        return 
+            self.neighbor_G_dict : dict
+        '''
+        if G_matrix is not None:
+            self.neighbor_G_dict[nei_key,self.key] = G_matrix
+        
+        return self.neighbor_G_dict
+        
+    def calc_GtG_row(self):
+        ''' This function calculate GtG row
+        for the given FETI domain
+    
+        before using this method please append G_dict from neighbors
+    
+        this method will update the internal variable
+        self.GtG_rows_dict = {}
+        '''
+        GtG_dict = self.GtG_rows_dict
+        Gj_dict = self.neighbor_G_dict
+        Gi_dict = self.G_dict
+        n = self.null_space_size
+        if n>0:
+            GiGi = np.zeros([n,n])
+            for sub_id, nei_id in Gi_dict:
+                    
+                    Gi = Gi_dict[sub_id,nei_id]
+                    
+                    # internal product which is a diagonal 
+                    # block entry for the global assembly
+                    GiGi += Gi.T.dot(Gi)
+                    GtG_dict[sub_id,sub_id] = GiGi
+                    
+                    try:
+                        Gj = Gj_dict[nei_id,sub_id]
+                    except:
+                        continue
+
+                    # product with the neighbor
+                    GiGj = Gi.T.dot(Gj)
+                    GtG_dict[sub_id,nei_id] = GiGj
+            
+            self.G_dict = GtG_dict
+        return GtG_dict 
+    
+    def apply_local_F(self, global_lambda, lambda_dict):
+        ''' This function applies local F operator in order to assemble
+        global operator F
+        
+        Let`s define global F as the Dual Interface Flexibility mathematically 
+        written as:
+        
+        F\lambda = d
+        
+        Where d is the interface displacement gap
+        
+        The goal of this function is to apply locally the product 
+        F\lambda
+        
+        The interface force lambda is always a interface pair force
+        than we can write F\lambda as
+        
+        F_{(i,j)}\lambda_{(i,j)}
+        
+        Writting the above equation using local matrix operators
+        we have 
+        
+        B_{(i,j)}*u_i + B_{(j,i)}*u_j
+        
+        where u_i is the solution of the following linear system
+        
+        K_i*u_i = \sum_{j=1}^{nei} B{(i,j)}\lambda_{(i,j)}
+        
+        then the local operator f^local{(i,j)} is defined as:
+        
+        f^local{(i,j)} = B_{(i,j)}*K_i^{*}*B_{(i,j)}}
+        
+        then F\lambda can be as :
+        [f^local{(i,j)} + f^local{(j,i)}]\lambda_{(i,j)}
+        
+        the it`s application h_local_({i,j}) is defined as
+        h_local_({i,j}) = f^local{(i,j)}\lambda_{(i,j)}
+        
+        arguments
+            global_lambda : np.array
+                global lambda
+                
+            lambda_dict : dict
+                dictionary which maps global lambda to
+                local lambda
+            solve_opt : str
+                solver option default = 'cholsps'
+        
+        return 
+            local_h_dict : dict
+                dict with local f(i,j)*\lambda(i,j)
+        '''
+        
+        #solving K(i)u(i) = b(i,j) in order to calculte the action of f(i,j)
+        force = np.zeros(self.total_dof)
+        u_i = self.solve_local_displacement(force,
+                                            global_lambda, 
+                                            lambda_dict)
+                                            
+        sub_id = self.key
+        local_h_dict = {}                              
+        for nei_id in self.submesh.neighbor_partitions:
+            Bi = self.B_dict[sub_id,nei_id]  
+            local_h_dict[sub_id,nei_id] = Bi.dot(u_i)
+        
+        return local_h_dict
+    
+    
 class Master():
-    def __init__(self):
+    def __init__(self,no_of_dofs_per_node=2):
     
         self.GtG_row_dict = {}
         self.course_grid_size = 0
-        self.id_dict = {} # list if sizes of local GtG 
         self.null_space_force_dict = {}
         self.alpha_dict = {}
-        self.lambda_id_dict = {}
+        self.lambda_dict = {}
         self.lambda_im_dict = {}
         self.G_dict = {}
         self.total_interface_dof = 0
@@ -809,15 +1019,37 @@ class Master():
         self.total_dof = 0
         self.interface_pair_list = []
         self.null_space_force = []
-        self.lambda_im = []
-        self.lambda_ker = []
+        self.lambda_im = np.array([])
+        self.lambda_ker = np.array([])
         self.d_hat_dict = {}
         self.h_dict = {}
         self.subdomain_keys = []
         self.Bi_dict = {}
         self.displacement_dict = {}
+        self.__subdomain_dof_info_dict = {} 
+        self.no_of_dofs_per_node = no_of_dofs_per_node
+        self.G = None
+        self.e = None
+        self.GtG = None
 
+    def append_partition_dof_info_dicts(self,subdomain_key,subdomain_interface_dofs_dict,subdomain_null_space_size):
+        ''' This function append subdomain information about the interface and null space size
+        in order to build the global index matrix
         
+        argument:
+            subdomain_key : int
+                subdomain key
+            subdomain_interface_dofs_dict : dict
+                subdomain dict with interface pairs as keys and num of
+                dofs as values
+            subdomain_null_space_size : int
+                subdomain null space size
+        '''
+        self.__subdomain_dof_info_dict[subdomain_key] = {}
+        self.__subdomain_dof_info_dict[subdomain_key]['num_interface_dof_dict']= subdomain_interface_dofs_dict
+        self.__subdomain_dof_info_dict[subdomain_key]['null_space_size'] = subdomain_null_space_size
+        return self.__subdomain_dof_info_dict
+
     def append_subdomain_keys(self,sub_key):
         
         key_list = self.subdomain_keys
@@ -828,121 +1060,74 @@ class Master():
             pass
         
         self.subdomain_keys.sort()
-        
-
     
     def appendGtG_row(self,G_row,key): 
     
         self.GtG_row_dict[key] = G_row
-            
-    def add_total_interface_dof(self, sub_dof):
-        
-        self.total_interface_dof += sub_dof/2.0
     
-    def appendG(self,Gi,key):
-                        
-        self.G_dict[key] = Gi
+    def append_G_dict(self,G_dict):
+        ''' This function appends subdomains
+        G_dict to Master in order to build global G_dict
         
+        arguments
+            G_dict : dict
+                dict with subdomain rigig traces
+           
+        returns
+            self.G_dict : dict
+                dict with all G_dict
+        '''
+        for key in G_dict:
+            Gi = G_dict[key]
+            if Gi is not None:
+                self.G_dict[key] = Gi
+        
+        return self.G_dict
+    
     def append_h(self,local_h_dict):
-        
         for key in local_h_dict:
             self.h_dict[key] = local_h_dict[key]
-        
     
     def append_null_space_force(self,e,sub_key):
+        '''
+        '''
         
-        
-        try:
-            sub_null_space_size = len(e)
-            self.course_grid_size +=sub_null_space_size
-            self.id_dict[sub_key] = sub_null_space_size
+        if e is not None:
             self.null_space_force_dict[sub_key] = e
-        except:
-            self.id_dict[sub_key] = 0
-            pass
-    
-    def assemble_G(self):
+
+    def assemble_G_and_e(self):
         
         key_list = self.subdomain_keys
         
-        bool_var = 0
-        count_dof = 0
-        count_null = 0
-        null_space_size = 0
-        G = np.zeros([self.course_grid_size,int(self.total_interface_dof)])
-        lambda_id_dict = {}
-        self.alpha_dict = {}
+        G = np.zeros([self.total_interface_dof,self.total_nullspace_dof])
+        e = np.zeros(self.total_nullspace_dof)
         
-        for i,sub_id in enumerate(key_list):
-            flag = 0
-            for j,nei_id in enumerate(key_list):
-
-                try:
-                    
-                    Gij = self.G_dict[sub_id][sub_id,nei_id]
-                    dof_int, null_space_size = np.shape(Gij)
-                    
-                    #----------------------------------------------------------
-                    # update alpha and rows
-                    # has keys -> no do someting -> yes do something else
-                    alpha_key = (sub_id,nei_id)
-                    #alpha_key_nei = (nei_id,sub_id)
-                    
-                    # update alpha
-                    rows = np.arange(count_null,count_null+null_space_size)
-                    self.alpha_dict[alpha_key] = rows
-
-                    
-                    #----------------------------------------------------------
-                    # update lambda and columns
-                    # has keys -> no do someting -> yes do something else
-                    lambda_key = (sub_id,nei_id)
-                    lambda_key_nei = (nei_id,sub_id)
-                    
-                    if lambda_key in self.lambda_id_dict:
-                        
-                        columns = self.lambda_id_dict[lambda_key]
-                    
-                    elif lambda_key_nei in self.lambda_id_dict:
-                        columns = self.lambda_id_dict[lambda_key_nei]
-                        
+        for sub_key in key_list:
+            i_index = self.alpha_dict[sub_key]
+            
+            if not i_index:
+                continue
+            # assemble null force
+            ei = self.null_space_force_dict[sub_key]
+            e[i_index] = np.array(ei).flatten()
+            
+            for nei_key in key_list:
+                if sub_key!=nei_key:
+                    if sub_key<nei_key:
+                        interface_pair = (sub_key,nei_key)
                     else:
-                        # update lambda
-                        end_columns = count_dof+dof_int
-                        columns = np.arange(count_dof,end_columns)
-                        self.lambda_id_dict[lambda_key] = columns
-                        self.lambda_id_dict[lambda_key_nei] = columns
-                        self.interface_pair_list.append(lambda_key)
-                        count_dof += dof_int
+                        interface_pair = (nei_key,sub_key)
+                        
+                    j_index = self.lambda_dict[interface_pair]
+                    if not j_index:
+                        continue
                     
-                    G[rows,columns.min():columns.max()+1] = Gij.T           
-                    flag = 1
-                    #count_null += null_space_size
-                    
-                except:
-                    pass
-                
-                
-                
-            #count_dof += dof_int    
-            if flag == 1:
-                count_null += null_space_size
-            
-            if sub_id in self.null_space_force_dict:
-                ei = self.null_space_force_dict[sub_id]
-                if bool_var==1:
-                    e = np.vstack([e,ei])
-                    
-                else:
-                    e = ei
-                    bool_var = 1
-            
-        self.null_space_force = e
-
-                
-
-            
-        return G.T
+                    Gij = self.G_dict[sub_key,nei_key]
+                    G[np.ix_(j_index,i_index)] = Gij
+        
+        self.G = G.T
+        self.e = e
+        return self.G,self.e
 
     def append_local_B(self,Bi):
         
@@ -958,9 +1143,7 @@ class Master():
             if flag == 0:
                 self.total_dof += m     
                 flag = 1
-            
-            
-        
+    
     def assemble_global_B(self):
 
         key_list = self.subdomain_keys
@@ -997,19 +1180,19 @@ class Master():
                     lambda_key = (sub_id,nei_id)
                     lambda_key_nei = (nei_id,sub_id)
                     
-                    if lambda_key in self.lambda_id_dict:
+                    if lambda_key in self.lambda_dict:
                         
-                        columns = self.lambda_id_dict[lambda_key]
+                        columns = self.lambda_dict[lambda_key]
                     
-                    elif lambda_key_nei in self.lambda_id_dict:
-                        columns = self.lambda_id_dict[lambda_key_nei]
+                    elif lambda_key_nei in self.lambda_dict:
+                        columns = self.lambda_dict[lambda_key_nei]
                         
                     else:
                         # update lambda
                         end_columns = count_dof+dof_interface
                         columns = np.arange(count_dof,end_columns)
-                        self.lambda_id_dict[lambda_key] = columns
-                        self.lambda_id_dict[lambda_key_nei] = columns
+                        self.lambda_dict[lambda_key] = columns
+                        self.lambda_dict[lambda_key_nei] = columns
                         self.interface_pair_list.append(lambda_key)
                         count_dof += dof_interface
                     
@@ -1019,69 +1202,60 @@ class Master():
                     
             count_null += local_dof
         return B.T
+    
+    def assemble_global_F_action(self):
+        ''' This function receive local f actions
+        and assemble them in a global F actions
+        F\lambda can be as :
+        [f^local{(i,j)} + f^local{(j,i)}]\lambda_{(i,j)}
+        h^local{(i,j)} + h^local{(j,i)}
+
+        '''
         
-    def assemble_h(self):
-        
-        # list of all domains
-        key_list = self.subdomain_keys
-        
-        i = 0
-        for sub_id in key_list:
-            for nei_id in key_list:
-                if sub_id<nei_id:
-                    try:
-                        hij = self.h_dict[sub_id,nei_id]
-                        hji = self.h_dict[nei_id,sub_id]
-                        h = hij + hji
-                        
-                        if i>0:
-                            h_v = np.vstack([h_v,h])
-                        else:
-                            h_v = h
-                            i = 1
-        
-                    except:
-                        pass
+        h_v = np.zeros(self.total_interface_dof)
+        for interface_pair in self.interface_pair_list:
+            i_index = self.lambda_dict[interface_pair]
+            hij = self.h_dict[interface_pair]
+            hji = self.h_dict[interface_pair[::-1]]
+            h_v[i_index] = hij + hji
                     
         return h_v
-        
     
     def assemble_GtG(self):
-        '''Assemble global GtG'''
+        '''Assemble global GtG based on self.GtG_row_dict
+        before with this method you must have indexation matrix 
+        see build_local_to_global_mapping method and also you need
+        and dict with GtG_row_dict which containts GiGj dictionaties
+        
+        return
+            GtG : np.matrix
+            
+        '''
         # initalize global G'G
-        n = self.course_grid_size
+        n = self.total_nullspace_dof
         GtG = np.zeros([n,n])
-        # assemple G'G
         key_list = self.subdomain_keys
 
-        offset = 0
-        offset_list = []
-        for i,key in enumerate(key_list):
-            try:
-                Gij = self.GtG_row_dict[key][key,key]
-                nlocal = self.id_dict[key]
-                init = offset
-                end = offset+nlocal 
-                GtG[init:end,init:end] = Gij
-                offset_list.append(offset)
-                offset = end
-                self.total_nullspace_dof += nlocal
-                count = 0
-                for j,nei in enumerate(key_list):
-                    if nei!=key:
-                        try:
-                            Gij = self.GtG_row_dict[key][key,nei]
-                            GtG[init:end,count:count+nlocal] = Gij
-                        
-                        except:
-                            pass
-                        
-                    count +=  self.id_dict[nei]
-            except:
-                pass
-                
-        return GtG
-    
+        for sub_key in key_list:
+            i_index = self.alpha_dict[sub_key]
+            if not i_index:
+                continue
+            
+            Gij = self.GtG_row_dict[sub_key][sub_key,sub_key]
+            # add G_row to GtG
+            GtG[np.ix_(i_index,i_index)] = Gij
+            
+            for nei_key in key_list:
+                if nei_key!=sub_key:
+                    j_index = self.alpha_dict[nei_key]
+                    if not j_index:
+                        continue
+                    
+                    # add G_row to GtG
+                    Gij = self.GtG_row_dict[sub_key][sub_key,nei_key]
+                    GtG[np.ix_(i_index,j_index)] = Gij
+        self.GtG = GtG
+        return self.GtG
     
     def append_d_hat(self,d_hat_dict):
         
@@ -1094,53 +1268,44 @@ class Master():
         where u_hat is defined as: u_hat = inv(K)*[f + B*lambda]
         '''
         
-        key_list = self.subdomain_keys
-        
-        i = 0
-        for sub_id in key_list:
-            for nei_id in key_list:
-                if sub_id<nei_id:
-                    try:
-                        dij = self.d_hat_dict[sub_id,nei_id]
-                        dji = self.d_hat_dict[nei_id,sub_id]
-                        d = dij + dji
-                        
-                        if i>0:
-                            d_hat = np.vstack([d_hat,d])
-                        else:
-                            d_hat = d
-                            i = 1
-        
-                    except:
-                        pass
-                    
+        d_hat = np.zeros(self.total_interface_dof)
+        for interface_pair in self.interface_pair_list:
+            i_index = self.lambda_dict[interface_pair]
+            dij = self.d_hat_dict[interface_pair]
+            dji = self.d_hat_dict[interface_pair[::-1]]
+            d_hat[i_index] = dij + dji
+                                            
         return d_hat
     
     def solve_lambda_im(self):
+        ''' This methods solves lambda_im
+        it depend on other methods in order to build
+        the GtG and G matrices as well the the null space force 
+        vector "e"
+        
+        return 
+            lampda_im : np.array
+                lampda im which solver the self equilibrium problem
+            
+        '''
         
         # solve lambda im
         # lambda_im = G'*(G'*G)^-1*e
         GtG = self.assemble_GtG()
         if len(GtG)==0:
             logging.warning('Course Grid size equal 0!')
-            return None
+            return self.lambda_im
             
         logging.info('Course Grid size equal %i by %i!' %GtG.shape)
             
-        logging.info('GtG')
-        logging.info(GtG)
-        
-        B = self.assemble_global_B()
-        logging.debug('B')
-        logging.debug(B)
-        
-        G = self.assemble_G()
-        #logging.info('G')
-        #logging.info(pd.DataFrame(G))
-        
-        e = self.null_space_force
-        logging.info('e')
-        logging.info(pd.DataFrame(e))
+        #logging.debug('GtG')
+        #logging.debug(GtG)
+
+        G, e = self.assemble_G_and_e()
+        logging.debug('G')
+        logging.debug(pd.DataFrame(G))
+        logging.debug('e')
+        logging.debug(pd.DataFrame(e))
         
         Ug, idf, R = cholsps(GtG)        
         Ug[idf,:] = 0.0
@@ -1148,26 +1313,15 @@ class Master():
         Ug[idf,idf] = 1.0
         e[idf] = 0.0
         
+        # solving lambda im
         aux1 = scipy.linalg.cho_solve((Ug,False),e)
-        
-        lambda_im = np.matmul(G,aux1)
-        
-        
+        lambda_im = G.T.dot(aux1)
         self.lambda_im = lambda_im
-        self.lambda_ker = np.matrix(np.zeros(len(lambda_im))).T
         
-        for (sub_id,nei_id) in self.lambda_id_dict:
-            local_lambda = lambda_im[self.lambda_id_dict[sub_id,nei_id]]
-            self.lambda_im_dict[sub_id,nei_id] = local_lambda
-            
-        self.G = G
-        self.GtG = GtG
-            
-        return self.lambda_im_dict
-    
+        return self.lambda_im
     
     def solve_corse_grid(self,r = None):
-        ''' This function computes de Projection P in r
+        ''' This function computes the Projection P in r
         where P = I - G(G'G)G'
         returns w = Pr
         '''
@@ -1190,7 +1344,6 @@ class Master():
         
         return w, alpha_hat
     
-        
     def assemble_dual_force(self,subdomains_dict):
         
         key_list = self.subdomain_keys
@@ -1222,8 +1375,47 @@ class Master():
                             i = 1
                 
         return d_hat
-          
-    
+
+    def build_local_to_global_mapping(self):
+        ''' This function build global interface and null space
+        indexation matrices based on internal variable self.__subdomain_dof_info_dict
+        
+        before using this method please set the self.__subdomain_dof_info_dict
+        using the self.append_partition_dof_info_dicts() method
+        
+        '''
+        key_list = self.subdomain_keys
+        dof_per_node = self.no_of_dofs_per_node
+        lambda_dof = self.total_interface_dof
+        alpha_dof = self.total_nullspace_dof
+        
+        for sub_id in key_list:
+            sub_dict =  self.__subdomain_dof_info_dict[sub_id]
+            sub_null_space_size = sub_dict['null_space_size']
+            list_alpha = list(range(alpha_dof,alpha_dof + sub_null_space_size))
+            self.alpha_dict[sub_id] = list_alpha
+            alpha_dof += sub_null_space_size
+            
+            for nei_id in key_list:
+                nei_dict = sub_dict['num_interface_dof_dict']
+                if nei_id in nei_dict:
+                    if (nei_id,sub_id) not in self.interface_pair_list:
+                        self.interface_pair_list.append((sub_id,nei_id))
+                        interface_size = nei_dict[nei_id]
+                        lampda_list = list(range(lambda_dof,lambda_dof + interface_size))
+                        self.lambda_dict[sub_id,nei_id] = lampda_list
+                        lambda_dof += interface_size
+                else:
+                    continue
+
+                       
+        self.lambda_im = np.zeros(lambda_dof)
+        self.lambda_ker = np.zeros(lambda_dof)
+        self.total_interface_dof = lambda_dof
+        self.total_nullspace_dof = alpha_dof
+        return self.lambda_dict, self.alpha_dict
+     
+     
 class SuperDomain():
     def __init__(self,submesh_dict=None):
         ''' This class is a special class to handle 
@@ -1248,8 +1440,8 @@ class SuperDomain():
         self.global_B = None
         self.block_stiffness = None
         self.block_force = None
-        self_subdomain_displacement_dict = {}
-
+        self._subdomain_displacement_dict = {}
+        self.G_dict = {}
         if submesh_dict is not None:
             self.create_feti_subdomains_dict(submesh_dict)
             
@@ -1283,7 +1475,8 @@ class SuperDomain():
 
             Kinv, R = sub.calc_pinv_and_null_space()
             idf = R.shape[1]
-
+            sub.set_null_space(R)
+            
             if idf:
                 last_alpha = dof_alpha_init  + R.shape[1]
                 self.alpha_global_dict[sub_key] = np.arange(dof_alpha_init,last_alpha)
@@ -1342,7 +1535,7 @@ class SuperDomain():
             idx = self.displacement_global_dict[sub_key]
             for nei_key in sub.submesh.neighbor_partitions:
                 idy = self.lambda_global_dict[sub_key, nei_key]
-                Bij = Bi_dict[sub_key, nei_key]
+                Bij = Bi_dict[sub_key, nei_key].todense()
                 for local_j,global_j in enumerate(idx):
                     for local_i,global_i in enumerate(idy):
                         B[global_i,global_j] = Bij[local_i,local_j]
@@ -1382,7 +1575,6 @@ class SuperDomain():
         Kinv = np.linalg.pinv(K)
         return Kinv
 
-
     def assemble_F_and_d(self):
 
         if self.global_B is None:
@@ -1407,12 +1599,15 @@ class SuperDomain():
         global_alpha_T = np.matrix(global_alpha).T
         for sub_key in self.domains_key_list:
             sub = self.get_feti_subdomains(sub_key)
-            sub.solve_local_displacement(global_lambda_T,lambda_dict,method)
-            u1 = sub.apply_rigid_body_correction(global_alpha_T,alpha_dict)
+            old_method = sub.set_solver_option()
+            sub.set_solver_option(method)
+            sub.solve_local_displacement(sub.force,global_lambda,lambda_dict)
+            u1 = sub.apply_rigid_body_correction(global_alpha,alpha_dict)
             u1 = np.array(u1).flatten()
             u[sub_key] = u1
 
-        self_subdomain_displacement_dict = u
+            sub.set_solver_option(old_method)
+        self._subdomain_displacement_dict = u
         return u
 
     def create_subdomain_primal_schur_complement_list(self,type='schur'):
@@ -1466,4 +1661,6 @@ class Boundary():
             #object_series = elements_df['el_type'].map(ele_class_dict)
             self.neumann_obj.extend(object_series)            
             
-
+if __name__ == "__main__":
+    # execute only if run as a script
+    None    

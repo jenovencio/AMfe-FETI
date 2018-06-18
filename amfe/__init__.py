@@ -41,6 +41,7 @@ from .num_exp_toolbox import *
 
 #FETI solver stuff
 from .feti_solver import *
+from .MPIfetisolver import *
 
 #Import plot library 
 from .plotmesh import * 
