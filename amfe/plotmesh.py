@@ -28,9 +28,11 @@ colors =[(0.3,0.3,0.3),
          (1,0,0),
          (0.5,0.25,0)]
 
+colors =  colors*10
+
 max_number_of_color = len(colors)
 
-def plot_submesh(submesh_obj,ax=None):
+def plot_submesh(submesh_obj,ax=None, color_id = None):
     ''' This function plots 2D meshes, suport elements are 
     Triagules = Tri3, Tri6
     lines = straight_line, straight_line
@@ -49,7 +51,129 @@ def plot_submesh(submesh_obj,ax=None):
     x_tri = []
     y_tri = []
     lines_counter = 0
+    points = []
 
+    try:
+        submesh_obj.parent_mesh.elements_type_dict = submesh_obj.parent_mesh.el_df['el_type'].to_dict()  
+        elem_start_index = submesh_obj.parent_mesh.node_idx
+        elem_last_index = len(submesh_obj.parent_mesh.el_df.columns)
+        elements_dict = submesh_obj.parent_mesh.el_df.iloc[:,elem_start_index:elem_last_index]
+        submesh_obj.parent_mesh.elements_dict = elements_dict.to_dict('index')
+        d = submesh_obj.parent_mesh.elements_dict
+        submesh_obj.elements_list = submesh_obj.elem_dataframe.index.tolist()
+        
+        
+        for key, value in d.items():
+            submesh_obj.parent_mesh.elements_dict[key] = [ int(j) for i, j in value.items() if not(np.isnan(j))]
+        
+        submesh_obj.parent_mesh.nodes_list = submesh_obj.parent_mesh.nodes.tolist()
+        submesh_obj.parent_mesh.nodes_dict = {key:value for key,value in enumerate(submesh_obj.parent_mesh.nodes_list)}
+        
+    except:
+        return None
+    
+    for elem in submesh_obj.elements_list:
+        
+        elem_connec = submesh_obj.parent_mesh.elements_dict[elem]
+        if submesh_obj.parent_mesh.elements_type_dict[elem] == 2 or submesh_obj.parent_mesh.elements_type_dict[elem] == 'Tri3':
+            connectivity_tri.append(elem_connec)
+            
+        elif submesh_obj.parent_mesh.elements_type_dict[elem] == 9 or submesh_obj.parent_mesh.elements_type_dict[elem] == 'Tri6':
+            connectivity_tri.append(elem_connec[0:3])
+            
+        elif submesh_obj.parent_mesh.elements_type_dict[elem] == 3 or submesh_obj.parent_mesh.elements_type_dict[elem] == 'Quad4':
+            #connectivity_quad.append(elem_connec) 
+            elem_nodes = []
+            for node in elem_connec:
+                elem_nodes.append(submesh_obj.parent_mesh.nodes_dict[node][0:2])
+            
+            polygon = Polygon(elem_nodes, True)
+            patches.append(polygon)
+        
+        elif submesh_obj.parent_mesh.elements_type_dict[elem] == 1 or submesh_obj.parent_mesh.elements_type_dict[elem] == 'straight_line':
+           node1 = submesh_obj.parent_mesh.elements_dict[elem][0]
+           node2 = submesh_obj.parent_mesh.elements_dict[elem][1]
+           x = [submesh_obj.parent_mesh.nodes_dict[node1][0],submesh_obj.parent_mesh.nodes_dict[node1][1]]            
+           y = [submesh_obj.parent_mesh.nodes_dict[node2][0],submesh_obj.parent_mesh.nodes_dict[node2][1]]
+           lines.append([x,y])
+           
+        elif submesh_obj.parent_mesh.elements_type_dict[elem] == 8 or submesh_obj.parent_mesh.elements_type_dict[elem] == 'quadratic_line':
+           node1 = submesh_obj.parent_mesh.elements_dict[elem][0]
+           node2 = submesh_obj.parent_mesh.elements_dict[elem][1]
+           x = [submesh_obj.parent_mesh.nodes_dict[node1][0],submesh_obj.parent_mesh.nodes_dict[node1][1]]            
+           y = [submesh_obj.parent_mesh.nodes_dict[node2][0],submesh_obj.parent_mesh.nodes_dict[node2][1]]
+           lines.append([x,y])
+
+        elif submesh_obj.parent_mesh.elements_type_dict[elem] == 0 or submesh_obj.parent_mesh.elements_type_dict[elem] == 'point':
+           node1 = submesh_obj.parent_mesh.elements_dict[elem][0]
+           x = submesh_obj.parent_mesh.nodes_dict[node1][0]          
+           y = submesh_obj.parent_mesh.nodes_dict[node1][1]
+           points.append([x,y])
+                
+   
+    for node in submesh_obj.parent_mesh.nodes_dict:
+        x_tri.append(submesh_obj.parent_mesh.nodes_dict[node][0])
+        y_tri.append(submesh_obj.parent_mesh.nodes_dict[node][1])
+                
+    if ax == None:
+        fig = plt.figure()
+        ax = plt.axes()    
+    
+    if connectivity_tri:
+        ax.triplot(x_tri, y_tri, connectivity_tri)
+
+    if patches:
+        p = PatchCollection(patches)
+        p.set_edgecolor('k')
+        #p.set_facecolor(colors[lines_counter])
+        if color_id is None:
+            p.set_facecolor(colors[submesh_obj.key])
+        else:    
+            p.set_facecolor(colors[color_id])
+        ax.add_collection(p)
+        ax.autoscale()
+        patches.clear()
+
+    if points:
+        ax.scatter(np.array(points).T[0], np.array(points).T[1], marker='o',label=str(submesh_obj.key))
+
+    # if lines:
+        # #lc = mc.LineCollection(lines, linewidths=2, color=colors[np.random.randint(0,9)])
+        # lc = mc.LineCollection(lines, linewidths=2, color=colors[lines_counter])
+        # ax.add_collection(lc)
+        # ax.autoscale()
+        # ax.margins(0.1)
+        # if lines_counter==max_number_of_color:
+           # lines_counter = 0
+        # else:
+            # lines_counter += 1
+    
+    if submesh_obj.interface_nodes_dict:
+        plot_nodes_in_the_interface(submesh_obj,ax)
+                         
+    return ax
+
+    
+def plot_submesh_obj(submesh_obj,ax=None, color_id=0):
+    ''' This function plots 2D meshes, suport elements are 
+    Triagules = Tri3, Tri6
+    lines = straight_line, straight_line
+    
+    Arguments
+    submesh_obj: submesh instance
+    ax: matplotlib axes
+    
+    Return
+    ax: matplotlib axes
+    '''
+           
+    connectivity_tri = []
+    lines = []
+    patches = []
+    x_tri = []
+    y_tri = []
+    lines_counter = 0
+    p = None
     try:
         submesh_obj.parent_mesh.elements_type_dict = submesh_obj.parent_mesh.el_df['el_type'].to_dict()  
         elem_start_index = submesh_obj.parent_mesh.node_idx
@@ -116,28 +240,33 @@ def plot_submesh(submesh_obj,ax=None):
     if patches:
         p = PatchCollection(patches)
         p.set_edgecolor('k')
-        p.set_facecolor(colors[np.random.randint(0,9)])
+        p.set_facecolor(colors[color_id])
         ax.add_collection(p)
         ax.autoscale()
         patches.clear()
-    
-    if lines:
-        #lc = mc.LineCollection(lines, linewidths=2, color=colors[np.random.randint(0,9)])
-        lc = mc.LineCollection(lines, linewidths=2, color=colors[lines_counter])
-        ax.add_collection(lc)
-        ax.autoscale()
-        ax.margins(0.1)
         if lines_counter==max_number_of_color:
            lines_counter = 0
         else:
             lines_counter += 1
     
+    # if lines:
+        # #lc = mc.LineCollection(lines, linewidths=2, color=colors[np.random.randint(0,9)])
+        # lc = mc.LineCollection(lines, linewidths=2, color=colors[lines_counter])
+        # ax.add_collection(lc)
+        # ax.autoscale()
+        # ax.margins(0.1)
+        # if lines_counter==max_number_of_color:
+           # lines_counter = 0
+        # else:
+            # lines_counter += 1
+    
     if submesh_obj.interface_nodes_dict:
         plot_nodes_in_the_interface(submesh_obj,ax)
-        
-                        
-    return ax
-
+         
+    ax.legend([p, 'Domain'])         
+    return ax, p
+    
+    
 def plot_nodes_in_the_interface(submesh_obj,ax=None):
     ''' This function plots nodes at the interface 
     
@@ -169,7 +298,6 @@ def plot_nodes_in_the_interface(submesh_obj,ax=None):
             plt.scatter(nx,ny)
 
 
-            
 def plot_deformed_subdomain(feti_obj,mult=1.0,ax=None):
     ''' This function plots deformed 2D meshes.
     Suport the same elements as plot_submesh method
@@ -215,8 +343,6 @@ def plot_deformed_subdomain(feti_obj,mult=1.0,ax=None):
     return ax
         
         
-        
-
 def plot_domain(domain,ax=None):
     ''' This function plots subdomains 2D meshes.
     Suport the same elements as plot_submesh method
@@ -236,12 +362,11 @@ def plot_domain(domain,ax=None):
 
     for j in domain.groups:
         if ax == None:
-            ax = plot_submesh(domain.groups[j])
+            ax = plot_submesh(domain.groups[j], color_id = j )
         else:
-            plot_submesh(domain.groups[j],ax)      
+            plot_submesh(domain.groups[j],ax, color_id = j)      
     
     return ax   
-
 
 
 def plot_boundary_1d(mesh_obj,ax=None,linewidth=2):
@@ -259,7 +384,7 @@ def plot_boundary_1d(mesh_obj,ax=None,linewidth=2):
     key_list = []
     mesh_obj.split_in_groups()
     lines_counter = 0
-
+    color_list = []
     for sub_key,submesh_obj in mesh_obj.groups.items():
     
         connectivity_tri = []
@@ -355,8 +480,6 @@ def plot_boundary_1d(mesh_obj,ax=None,linewidth=2):
     return ax
 
 
-
-
 def plot_subdomains(subdomains_dict,a=1.0,ax=None):
     ''' This function plots deformed 2D meshes.
     Suport the same elements as plot_submesh method
@@ -382,7 +505,7 @@ def plot_subdomains(subdomains_dict,a=1.0,ax=None):
             plot_deform_submesh(subi,ax,mult=a) 
     return ax
             
-      
+  
 def plot_deformed_subdomains(subdomains_dict,a=1.0,ax=None):
     ''' This function plots deformed 2D meshes.
     Suport the same elements as plot_submesh method
@@ -504,9 +627,7 @@ def plotDeformTriMesh(connectivity, nodes, displacement, factor=1, ax = None):
     return tri, ax           
     
     
-    
-    
-def plotDeformQuadMesh(connectivity, nodes, displacement, factor=1, ax = None):
+def plotDeformQuadMesh(connectivity, nodes, displacement, factor=1, ax = None, color_id=None):
     ''' This function plots Triagular 2D meshes.
     
     
@@ -550,7 +671,10 @@ def plotDeformQuadMesh(connectivity, nodes, displacement, factor=1, ax = None):
     ax.autoscale()
     p = PatchCollection(patches)
     p.set_edgecolor('k')
-    p.set_facecolor(colors[np.random.randint(0,9)])
+    if color_id is None:
+        p.set_facecolor(colors[np.random.randint(0,9)])
+    else:
+        p.set_facecolor(colors[color_id])
     ax.add_collection(p)
     ax.autoscale()
     patches.clear()
@@ -574,14 +698,24 @@ def plot_mesh(mesh_obj,ax=None, boundaries=True):
     mesh_obj.split_in_groups()
 
     for sub_key,submesh_obj in mesh_obj.groups.items():
-
         if ax == None:
-            ax = plot_submesh(submesh_obj)
+            ax = plot_submesh(submesh_obj,color_id = sub_key)
         else:
-            plot_submesh(submesh_obj ,ax)      
+            ax = plot_submesh(submesh_obj ,ax, color_id = sub_key)      
+           
+        #print(p)    
+        #if p is not None:
+        #    p.set_label(['domain %s' %str(sub_key)])
+                
+        
     if boundaries:
         plot_boundary_1d(mesh_obj,ax,linewidth=4)
-
+    
+    #leg = ax.get_legend()
+    #leg.legendHandles.append(p)
+    #print(leg.legendHandles)
+    #leg.legendHandles[-1].set_facecolor('yellow')
+    ax.legend()
     return ax   
 
 
@@ -645,3 +779,21 @@ def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
     patches.clear()
     
     return p, ax
+    
+def plot_superdomain(superdomain_obj, scale = 1, ax1 = None):
+    ''' plot superdomain results
+    '''
+    if ax1 == None:
+        fig = plt.figure()
+        ax1 = plt.axes() 
+        
+    connectivity = {}
+    nodes = {}
+
+    for sub_key in superdomain_obj.domains_key_list:
+        sub = superdomain_obj.get_feti_subdomains(sub_key)
+        connectivity[sub_key] = sub.mesh.connectivity
+        nodes[sub_key] = sub.mesh.nodes
+        quad, ax1 = plotDeformQuadMesh(connectivity[sub_key],nodes[sub_key],superdomain_obj._subdomain_displacement_dict[sub_key],scale,ax1,color_id = sub_key ) 
+          
+    return ax1

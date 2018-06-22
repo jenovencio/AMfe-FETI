@@ -121,6 +121,7 @@ def exchange_info(sub_id,master,master_append_func,var,partitions_list):
                     master_append_func(nei_var,partition_id)
             else:
                 try:   
+                    print(var)
                     master_append_func(var)
              
                 except:
@@ -250,35 +251,34 @@ def alpha_calc(yk,wk,pk,Fpk):
 
 
     
-def action_of_global_F_mpi(global_lambda,master,partitions_list):
+def action_of_global_F_mpi(global_lambda,sub_i,master,partitions_list):
     ''' This function apply the action of F in lambda
     communacation among subdomain using MPI
     '''
     #%%%%%%%%%%%%%%% APPLYING LOCAL F  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # apply local F operations
-    local_h_dict = sub_i.apply_local_F(lambda_im, master.lambda_dict)
+    local_h_dict = sub_i.apply_local_F(global_lambda, master.lambda_dict)
     master.append_h(local_h_dict)
     #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     #%%%%%%%%%%% EXCHANGE INFORMATION WITH ALL SUBDOMAIN  %%%%%%%%%%%%
     master_func_list = [master.append_h]
     var_list = [local_h_dict]
-    exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
+    exchange_info(sub_i.key,master,master_func_list,var_list,partitions_list)
     #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    
-    
+
     #%%%%%%%%%%%%% ASSEMBLE GLOBAL F*Lambda  %%%%%%%%%%%%%%%%%%%
-    Fim = master.assemble_h() # Fpk = B*Kpinv*B'*pk
+    Fim = master.assemble_global_F_action() # Fpk = B*Kpinv*B'*pk
     logging.debug('Fim')
     logging.debug(Fim)
     return Fim
     
-def assemble_global_d_mpi(master,partitions_list):        
+def assemble_global_d_mpi(sub_i,master,partitions_list):        
     #%%%%%%%%%%% EXCHANGE INFORMATION WITH ALL SUBDOMAIN  %%%%%%%%%%%%
     dual_force_dict = sub_i.calc_dual_force_dict()
     master_func_list = [master.append_d_hat]
     var_list = [dual_force_dict]
-    exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
+    exchange_info(sub_i.key,master,master_func_list,var_list,partitions_list)
     #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     d = master.assemble_global_d_hat()
@@ -399,7 +399,7 @@ class ParallelSolver():
         self.lampda_im = []
         self.lampda_ker = []
         
-    def mpi_solver(self,sub_domain,num_partitions, n_int=500, cholesky_tolerance=1.0E-6):
+    def mpi_solver(self,sub_domain,num_partitions, n_int=500, cholesky_tolerance=1.0E-8):
         ''' solve linear FETI problem with PCGP with parcial reorthogonalization
         '''
         
@@ -452,7 +452,7 @@ class ParallelSolver():
                 sub_i.append_neighbor_G_dict(nei_key,Gj)
             
             # creating GtG rows
-            GtG_rows_dict = sub_i.create_GtG_rows()
+            GtG_rows_dict = sub_i.calc_GtG_row()
             null_space_size = sub_i.null_space_size
             
             logging.debug('Local GtG rows')
@@ -464,14 +464,14 @@ class ParallelSolver():
             # List of function in master to append variables
             master_func_list = [master.appendGtG_row, 
                                 master.append_G_dict,
-                                master.append_partition_dof_info_dicts,
-                                master.append_null_space_force]
+                                master.append_null_space_force,
+                                master.append_partition_tuple_info]
             
             # variables to be appended in master
             var_list = [GtG_rows_dict,
                         master.G_dict,
-                        (sub_id,subdomain_interface_dofs_dict,subdomain_null_space_size),
-                        sub_i.null_space_force]
+                        sub_i.null_space_force,
+                        (sub_id,subdomain_interface_dofs_dict,subdomain_null_space_size)]
             
             # exchange information among all partitions
             exchange_info(sub_id,master,master_func_list,var_list,partitions_list)
@@ -479,6 +479,7 @@ class ParallelSolver():
             logging.debug('Master GtG keys')
             logging.debug(master.GtG_row_dict.keys())    
             
+            master.build_local_to_global_mapping()
             logging.info('total interface dof %i' %master.total_interface_dof)
             logging.info('Null space size %i' %master.total_nullspace_dof)
             #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -486,54 +487,37 @@ class ParallelSolver():
             
             #%%%%%%%%%%%%%%% SOLVING SELF EQUILIBRIUM LAMBDA IM  %%%%%%%%%%%%%%
             lambda_im = master.solve_lambda_im()
-            self.lampda_im = lampda_im
             lambda_ker = master.lambda_ker
             #%%%%%%%%%%%%%%%%%%%%%% END  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             
             
+            # defining solver actions
+            F = lambda x : action_of_global_F_mpi(x,sub_i,master,partitions_list)
+            P = lambda rk : projection_action_mpi(rk,master)
+            
             #%%%%%%%%%%%%%%% APPLYING LOCAL F  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            Fim = action_of_global_F_mpi(global_lambda,master,partitions_list)
-            d = assemble_global_d_mpi(master,partitions_list)
-            
-
-            
-            # init precond
-            n = len(lambda_ker)
-            precond = np.eye(n,n)
-            
-            # dicts to story past iterations
-            w_dict = {}
-            y_dict = {}
-            pk1 = np.zeros([n,1])
-            
+            Fim = F(lambda_im)
+            d = assemble_global_d_mpi(sub_i,master,partitions_list)
             # initial residual
             r0 = d - Fim
             #---------------------------------------------------------------------
             # PCPG algorithm     
-            F = lambda x : action_of_global_F_mpi(x,master,partitions_list)
-            P = lambda rk : projection_action_mpi(rk,master)
             lambda_ker, last_res, proj_r_hist, lambda_hist = amfe.PCGP(F,r0,P)
                 
             # lagrange multiplier solution
             lambda_sol =  lambda_im + lambda_ker
 
-            
-            # compute global error
+            # compute global error without Rigid body correction
             d = master.assemble_global_d_hat() # dual force global assemble
             
             # calc Global F_lambda
-            F_lambda = global_apply_F(master,sub_i,lambda_id_dict,lambda_sol)
-            
-            logging.debug('F_lambda =', F_lambda.T)
-            
-            d_hat = d
-            
-            d_hat = d - F_lambda
+            d_hat = d - F(lambda_sol)
         
-            wk, alpha_hat = master.solve_corse_grid(d_hat)
+            # calc Rigid Body Correction
+            wk, global_alpha = master.solve_corse_grid(d_hat)
             
-            u = subdomain_step4(sub_i, lambda_sol, alpha_hat)
-            logging.debug('u =', u.T)
+            sub_i.solve_local_displacement(global_lambda=lambda_sol, lambda_dict=master.lambda_dict)
+            sub_i.apply_rigid_body_correction(global_alpha,master.alpha_dict)
             
             res_path = os.path.join(directory,str(sub_id) + '.are')
             amfe.save_object(sub_i, res_path)

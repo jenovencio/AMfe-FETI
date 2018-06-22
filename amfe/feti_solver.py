@@ -556,7 +556,7 @@ class FETIsubdomain(Assembly):
                 lambda_id = (sub_id,nei_id)
             else:    
                 lambda_id = (nei_id,sub_id)
-                
+                       
             local_id = lambda_dict[lambda_id]
             Bi = self.B_dict[sub_id,nei_id]   
             local_lambda = global_lambda[local_id]
@@ -633,7 +633,8 @@ class FETIsubdomain(Assembly):
             Ui[idf,:] = 0.0
             Ui[:,idf] = 0.0
             Ui[idf,idf] = 1.0
-            self.total_force[idf] = 0.0
+            #self.total_force[idf] = 0.0
+            self.zero_pivot_indexes = idf
             self.full_rank_upper_cholesky = scipy.sparse.csr_matrix(Ui)
     
         else:
@@ -651,7 +652,6 @@ class FETIsubdomain(Assembly):
         solver_opt = self.solver_opt
         if solver_opt=='cholsps':
             Ui,idf,R = self.compute_cholesky_decomposition()
-            self.zero_pivot_indexes = idf
             
         elif solver_opt=='svd': 
             Kinv,R = self.calc_pinv_and_null_space()
@@ -676,9 +676,10 @@ class FETIsubdomain(Assembly):
         
         if R is not None:
             try:
-                force = self.total_force
-                if self.null_space_size>0:
-                    self.null_space_force = np.matrix(-force.T.dot(R)).T
+            
+                force = np.array(self.total_force).flatten()
+                self.null_space_force = -R.T.dot(force)
+                
             except:
                 pass
         else:
@@ -728,6 +729,8 @@ class FETIsubdomain(Assembly):
         else:
             logging.error('Solver type not implemented')
             return None
+            
+        return self.dual_force_dict
             
     def calc_pinv_and_null_space(self,solver_opt='svd',tol=1.0E-8):
         
@@ -826,11 +829,9 @@ class FETIsubdomain(Assembly):
         else:
             B_dict = self.B_dict 
         
-        # compute null space and cholesky decomposition
-        if not self.compute_cholesky_boolean:
-            self.calc_null_space()
-            
-        R = self.null_space
+        # compute null space based on self.solve_opt
+        R = self.calc_null_space()
+
         # store all G in G_dict
         for key in B_dict:
             if self.null_space_size>0:
@@ -1030,7 +1031,7 @@ class Master():
         self.no_of_dofs_per_node = no_of_dofs_per_node
         self.G = None
         self.e = None
-        self.GtG = None
+        self.GGT = None
 
     def append_partition_dof_info_dicts(self,subdomain_key,subdomain_interface_dofs_dict,subdomain_null_space_size):
         ''' This function append subdomain information about the interface and null space size
@@ -1049,7 +1050,13 @@ class Master():
         self.__subdomain_dof_info_dict[subdomain_key]['num_interface_dof_dict']= subdomain_interface_dofs_dict
         self.__subdomain_dof_info_dict[subdomain_key]['null_space_size'] = subdomain_null_space_size
         return self.__subdomain_dof_info_dict
-
+    
+    def append_partition_tuple_info(self, tuple_info):
+        subdomain_key = tuple_info[0]
+        subdomain_interface_dofs_dict = tuple_info[1]
+        subdomain_null_space_size = tuple_info[2]
+        self.append_partition_dof_info_dicts(subdomain_key,subdomain_interface_dofs_dict,subdomain_null_space_size)
+        
     def append_subdomain_keys(self,sub_key):
         
         key_list = self.subdomain_keys
@@ -1077,11 +1084,12 @@ class Master():
             self.G_dict : dict
                 dict with all G_dict
         '''
+        
         for key in G_dict:
             Gi = G_dict[key]
             if Gi is not None:
                 self.G_dict[key] = Gi
-        
+  
         return self.G_dict
     
     def append_h(self,local_h_dict):
@@ -1221,7 +1229,7 @@ class Master():
                     
         return h_v
     
-    def assemble_GtG(self):
+    def assemble_GGT(self):
         '''Assemble global GtG based on self.GtG_row_dict
         before with this method you must have indexation matrix 
         see build_local_to_global_mapping method and also you need
@@ -1237,6 +1245,10 @@ class Master():
         key_list = self.subdomain_keys
 
         for sub_key in key_list:
+            
+            if sub_key not in self.alpha_dict:
+                continue
+            
             i_index = self.alpha_dict[sub_key]
             if not i_index:
                 continue
@@ -1247,21 +1259,26 @@ class Master():
             
             for nei_key in key_list:
                 if nei_key!=sub_key:
+                    
+                    if nei_key not in self.alpha_dict:
+                        continue                        
+                    
                     j_index = self.alpha_dict[nei_key]
                     if not j_index:
                         continue
-                    
+                        
                     # add G_row to GtG
                     Gij = self.GtG_row_dict[sub_key][sub_key,nei_key]
                     GtG[np.ix_(i_index,j_index)] = Gij
-        self.GtG = GtG
-        return self.GtG
+        self.GGT = GtG
+        return self.GGT
     
     def append_d_hat(self,d_hat_dict):
         
         for key in d_hat_dict:
-            self.d_hat_dict[key] = d_hat_dict[key]
-            
+            if key is not None:
+                self.d_hat_dict[key] = d_hat_dict[key]
+
     def assemble_global_d_hat(self):
         ''' Assemble global d_hat where each subdomain ith 
         has local dict as d_hat(i,j) = B(i,j)*u_hat(i)
@@ -1291,12 +1308,12 @@ class Master():
         
         # solve lambda im
         # lambda_im = G'*(G'*G)^-1*e
-        GtG = self.assemble_GtG()
-        if len(GtG)==0:
+        GGT = self.assemble_GGT()
+        if len(GGT)==0:
             logging.warning('Course Grid size equal 0!')
             return self.lambda_im
             
-        logging.info('Course Grid size equal %i by %i!' %GtG.shape)
+        logging.info('Course Grid size equal %i by %i!' %GGT.shape)
             
         #logging.debug('GtG')
         #logging.debug(GtG)
@@ -1307,7 +1324,7 @@ class Master():
         logging.debug('e')
         logging.debug(pd.DataFrame(e))
         
-        Ug, idf, R = cholsps(GtG)        
+        Ug, idf, R = cholsps(GGT)        
         Ug[idf,:] = 0.0
         Ug[:,idf] = 0.0
         Ug[idf,idf] = 1.0
@@ -1325,12 +1342,12 @@ class Master():
         where P = I - G(G'G)G'
         returns w = Pr
         '''
-        GtG = self.GtG
+        GGT = self.GGT
         G = self.G
         
-        Gd_hat = np.matmul(G.T,r)
+        Gd_hat = np.matmul(G,r)
         
-        Ug, idf, R = cholsps(GtG)        
+        Ug, idf, R = cholsps(GGT)        
         Ug[idf,:] = 0.0
         Ug[:,idf] = 0.0
         Ug[idf,idf] = 1.0
@@ -1338,7 +1355,7 @@ class Master():
         
         alpha_hat = scipy.linalg.cho_solve((Ug,False),Gd_hat)
         
-        w = r - np.matmul(G,alpha_hat)
+        w = r - np.matmul(G.T,alpha_hat)
         
         self.project_residual = w
         
@@ -1417,7 +1434,7 @@ class Master():
      
      
 class SuperDomain():
-    def __init__(self,submesh_dict=None):
+    def __init__(self,submesh_dict=None,method='svd'):
         ''' This class is a special class to handle 
         serial Domain Decomposition Solvers
         '''
@@ -1442,14 +1459,28 @@ class SuperDomain():
         self.block_force = None
         self._subdomain_displacement_dict = {}
         self.G_dict = {}
+        self.master = Master()
+        self.method = method
         if submesh_dict is not None:
             self.create_feti_subdomains_dict(submesh_dict)
             
     def create_feti_subdomains_dict(self, submesh_dict):
         self.domains_key_list = np.sort(list(submesh_dict.keys()))
-        
+        self.master.subdomain_keys = self.domains_key_list
         for sub_key in self.domains_key_list:
-            self.feti_subdomains_dict[sub_key] = FETIsubdomain(submesh_dict[sub_key])
+            sub_i = FETIsubdomain(submesh_dict[sub_key])
+            sub_i.solver_opt = self.method
+            G_dict = sub_i.calc_G_dict()
+            subdomain_interface_dofs_dict = sub_i.num_of_interface_dof_dict
+            subdomain_null_space_size = sub_i.null_space_size
+            self.master.append_G_dict(G_dict)
+            self.master.append_partition_dof_info_dicts(sub_key,subdomain_interface_dofs_dict,subdomain_null_space_size)
+            sub_i.calc_dual_force_dict()
+            self.master.append_null_space_force(sub_i.null_space_force,sub_key)
+            
+            # add feti domain to super_domain dict
+            self.feti_subdomains_dict[sub_key] = sub_i
+         
         
         self.build_local_to_global_mapping()
 
@@ -1470,11 +1501,15 @@ class SuperDomain():
             last_dof = dof_init + num_local_dofs
             self.displacement_global_dict[sub_key] = np.arange(dof_init,last_dof)
             dof_init = last_dof
-
-            #Ui, idf, R = sub.compute_cholesky_decomposition()
-
-            Kinv, R = sub.calc_pinv_and_null_space()
-            idf = R.shape[1]
+            
+            if self.method == 'cholsps':
+                Ui, idf, R = sub.compute_cholesky_decomposition()
+            elif self.method == 'svd':
+                Kinv, R = sub.calc_pinv_and_null_space()
+                idf = R.shape[1]
+            else:
+                logging.error('Method = %s is not defined' %self.method)
+                
             sub.set_null_space(R)
             
             if idf:
@@ -1554,7 +1589,16 @@ class SuperDomain():
             Kd, fd = self.assemble_block_stiffness_and_force()
         else:
             fd = self.block_force
-
+        
+        
+        #sending info to master
+        for sub_id in self.domains_key_list:
+            sub_i = self.feti_subdomains_dict[sub_id]
+            for nei_id in sub_i.neighbor_partitions:
+                sub_j = self.feti_subdomains_dict[nei_id]
+                Gj = sub_j.G_dict[nei_id,sub_id]
+                sub_i.append_neighbor_G_dict(nei_id,Gj)
+        
         G = np.zeros([self.total_alpha_dofs,self.total_lambda_dofs])
         e = np.zeros(self.total_alpha_dofs)
 
@@ -1590,13 +1634,12 @@ class SuperDomain():
 
         return F, d
 
-    def eval_subdomain_displacement(self,global_lambda,global_alpha, method='svd'):
+    def eval_subdomain_displacement(self,global_lambda,global_alpha):
 
         u = {}
         lambda_dict = self.lambda_global_dict
         alpha_dict = self.alpha_global_dict
-        global_lambda_T = np.matrix(global_lambda).T
-        global_alpha_T = np.matrix(global_alpha).T
+        method = self.method
         for sub_key in self.domains_key_list:
             sub = self.get_feti_subdomains(sub_key)
             old_method = sub.set_solver_option()
