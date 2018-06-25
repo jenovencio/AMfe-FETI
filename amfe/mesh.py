@@ -26,7 +26,7 @@ from xml.dom import minidom
 import pandas as pd
 import h5py
 import numpy as np
-
+import logging
 
 
 from .element import Tet4, \
@@ -169,7 +169,7 @@ def check_dir(*filenames):
         # check if directory does not exist; then create directory
         if not os.path.exists(dir_name) or dir_name == '':
             os.makedirs(os.path.dirname(filename))          # then create directory
-            print("Created directory: " + os.path.dirname(filename))
+            logging.info("Created directory: " + os.path.dirname(filename))
 
 
 def prettify_xml(elem):
@@ -897,8 +897,8 @@ class Mesh:
         tag_elements_start = "$Elements"
         tag_elements_end   = "$EndElements"
 
-        print('\n*************************************************************')
-        print('Loading gmsh-mesh from', filename)
+        logging.info('\n*************************************************************')
+        logging.info('Loading gmsh-mesh from ' + filename)
 
         with open(filename, 'r') as infile:
             data_geometry = infile.read().splitlines()
@@ -1048,9 +1048,9 @@ class Mesh:
 
         self._update_mesh_props()
         # printing some information regarding the physical groups
-        print('Mesh', filename, 'successfully imported.',
+        logging.info('Mesh ' + filename + ' successfully imported.' + \
               '\nAssign a material to a physical group.')
-        print('*************************************************************')
+        logging.info('*************************************************************')
         return
 
 
@@ -1084,15 +1084,15 @@ class Mesh:
         # asking for a group to be chosen, when no valid group is given
         df = self.el_df
         if mesh_prop not in df.columns:
-            print('The given mesh property "' + str(mesh_prop) + '" is not valid!',
+            logging.info('The given mesh property "' + str(mesh_prop) + '" is not valid!',
                   'Please enter a valid mesh prop from the following list:\n')
             for i in df.columns:
-                print(i)
+                logging.info(i)
             return
         while key not in pd.unique(df[mesh_prop]):
             self.mesh_information(mesh_prop)
-            print('\nNo valid', mesh_prop, 'is given.\n(Given', mesh_prop,
-                  'is', key, ')')
+            logging.info('\nNo valid ' + mesh_prop, ' is given.\n(Given ' + mesh_prop + \
+                  ' is ' + key + ')')
             key = int(input('Please choose a ' + mesh_prop + ' to be used as mesh: '))
 
         # make a pandas dataframe just for the desired elements
@@ -1103,11 +1103,11 @@ class Mesh:
         connectivity = self.compute_connectivity_and_add_material(elements_df,material)
         
         # log info some output stuff
-        print('*************************************************************')
-        print('\n', mesh_prop, key, 'with', len(connectivity), \
-              'elements successfully added.')
-        print('Total number of elements in mesh:', len(self.ele_obj))
-        print('*************************************************************')
+        logging.info('*************************************************************')
+        logging.info('\n '+ mesh_prop + str(key) + ' with ' + str(len(connectivity)) + \
+              ' elements successfully added.')
+        logging.info('Total number of elements in mesh:' + str(len(self.ele_obj)))
+        logging.info('*************************************************************')
         
         return None
 
@@ -1414,8 +1414,8 @@ class Mesh:
         df = self.el_df
         while key not in pd.unique(df[mesh_prop]):
             self.mesh_information(mesh_prop)
-            print('\nNo valid', mesh_prop, 'is given.\n(Given',
-                  mesh_prop, 'is', key, ')')
+            logging.info('\nNo valid' + mesh_prop + 'is given.\n(Given' + \
+                  mesh_prop +  'is' + str(key) +  ')')
             key = int(input('Please choose a ' + mesh_prop +
                             ' to be used for the Neumann Boundary conditions: '))
 
@@ -1452,11 +1452,11 @@ class Mesh:
         # self._update_mesh_props() <- old implementation: not necessary!
 
         # print some output stuff
-        print('\n', mesh_prop, key, 'with', len(nm_connectivity),
-              'elements successfully added to Neumann Boundary.')
-        print('Total number of neumann elements in mesh:', len(self.neumann_obj))
-        print('Total number of elements in mesh:', len(self.ele_obj))
-        print('*************************************************************')
+        logging.info('\n' + mesh_prop + str(key) + ' with ' + str(len(nm_connectivity)) + \
+              ' elements successfully added to Neumann Boundary.')
+        logging.info('Total number of neumann elements in mesh:' + str(len(self.neumann_obj)))
+        logging.info('Total number of elements in mesh:' + str(len(self.ele_obj)))
+        logging.info('*************************************************************')
 
 
     def set_dirichlet_bc(self, key, coord, mesh_prop='phys_group',
@@ -1571,11 +1571,11 @@ class Mesh:
             self.nodes_dirichlet = np.unique(nodes_dirichlet)
 
         # print some output stuff
-        print('\n', mesh_prop, key, 'with', len(unique_nodes),
-              'nodes successfully added to Dirichlet Boundaries.')
-        print('Total number of nodes with Dirichlet BCs:', len(self.nodes_dirichlet))
-        print('Total number of constrained dofs:', len(self.dofs_dirichlet))
-        print('*************************************************************')
+        logging.info('\n' + mesh_prop + str(key) + 'with' + str(len(unique_nodes)) + \
+              ' nodes successfully added to Dirichlet Boundaries.')
+        logging.info('Total number of nodes with Dirichlet BCs:' +  str(len(self.nodes_dirichlet)))
+        logging.info('Total number of constrained dofs:' +  str(len(self.dofs_dirichlet)))
+        logging.info('*************************************************************')
         if output is 'external':
             return nodes_dirichlet, dofs_dirichlet
 

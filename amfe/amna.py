@@ -165,7 +165,11 @@ def splusps(A,tol=1.0e-6):
     idf = np.where(abs(diag_U)<tol)[0].tolist()
     
     R = calc_null_space_of_upper_trig_matrix(U,idf)
-    R = Pc.A.dot(R)
+
+    if R is not None:
+        R = Pc.A.dot(R)
+    else:
+        R = np.array([])
 
     #for v in R.T:
     #    is_null_space(A,v, tol)
@@ -247,6 +251,7 @@ def pinv_and_null_space_svd(K,tol=1.0E-8):
     if issparse(K):
         K = K.todense()
         
+    n, n = K.shape
     V,val,U = np.linalg.svd(K)
         
     total_var = np.sum(val)
@@ -263,7 +268,10 @@ def pinv_and_null_space_svd(K,tol=1.0E-8):
     Kinv =  np.matmul( subV,np.matmul(np.diag(invval),subV.T))
         
     last_idx = idx[-1]
-    R = np.array(V[:,last_idx+1:])
+    if n>len(idx):
+        R = np.array(V[:,last_idx+1:])
+    else:
+        R = np.array([])
 
     return Kinv,R
         
@@ -294,7 +302,7 @@ def is_null_space(K,v, tol=1.0E-3):
     else:
         return False
 
-class pinv_and_null_space():
+class P_inverse():
     ''' This class intend to solve singular systems
     build the null space of matrix operator and also 
     build the inverse matrix operator
@@ -309,7 +317,7 @@ class pinv_and_null_space():
         K : np.array
             matrix to be inverted
         tol : float
-            float tolerance for buiding the null space
+            float tolerance for building the null space
         
     return:
         K_pinv : object
@@ -318,7 +326,7 @@ class pinv_and_null_space():
     solver_opt = 'splusps'
     list_of_solvers = ['cholsps','splusps','svd']
     pinv = None
-    null_space = None
+    null_space = np.array([])
     free_index = []
     
     def compute(K,tol=1.0E-8,solver_opt=None):
@@ -326,10 +334,10 @@ class pinv_and_null_space():
         '''
         
         if solver_opt is None:
-            solver_opt = pinv_and_null_space.solver_opt
+            solver_opt = P_inverse.solver_opt
         
         if solver_opt=='splusps':
-            lu, idf, R = splusps(K)
+            lu, idf, R = splusps(K,tol=tol)
             lu.U[idf,:] = 0.0
             lu.U[:,idf] = 0.0
             lu.U[idf,idf] = 1.0
@@ -337,25 +345,26 @@ class pinv_and_null_space():
             
             
         elif solver_opt=='cholsps':
-            U,idf,R =cholsps(K)
+            U,idf,R =cholsps(K,tol=tol)
             U[idf,:] = 0.0
             U[:,idf] = 0.0
             U[idf,idf] = 1.0
             K_pinv = lambda f : linalg.cho_solve((U,False),f) 
             
         elif solver_opt=='svd':
-            K_inv, R = pinv_and_null_space_svd(K)
+            K_inv, R = pinv_and_null_space_svd(K,tol=tol)
             K_pinv = np.array(K_inv).dot
             idf = []
         
         else:
             raise('Solver %s not implement. Check list_of_solvers.')
         
-        pinv_and_null_space.pinv = K_pinv
-        pinv_and_null_space.null_space = R
-        pinv_and_null_space.free_index = idf
-        
-        return pinv_and_null_space
+        P_inverse.pinv = K_pinv
+        P_inverse.free_index = idf
+        if R is not None:
+            P_inverse.null_space = R
+
+        return P_inverse
         
     def apply(f,alpha=np.array([])):
         ''' function to apply K_pinv
@@ -368,8 +377,8 @@ class pinv_and_null_space():
             alpha : np.array
                 combination of the kernel of K alpha*R
         '''
-        K_pinv = pinv_and_null_space.pinv
-        idf = pinv_and_null_space.free_index
+        K_pinv = P_inverse.pinv
+        idf = P_inverse.free_index
         
         # f must be orthogonal to the null space R.T*f = 0 
         if idf:
@@ -377,8 +386,8 @@ class pinv_and_null_space():
         
         u_hat = K_pinv(f)
         
-        if alpha:
-            u_hat += pinv_and_null_space.calc_kernel_correction(alpha)
+        if alpha.size>0:
+            u_hat += P_inverse.calc_kernel_correction(alpha)
             
         return u_hat
         
@@ -386,6 +395,6 @@ class pinv_and_null_space():
         ''' apply kernel correction to
         calculate another particular solution
         '''
-        R = pinv_and_null_space.null_space
+        R = P_inverse.null_space
         u_corr = R.dot(alpha)
         return u_corr
