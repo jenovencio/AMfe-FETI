@@ -328,14 +328,28 @@ class P_inverse():
     pinv = None
     null_space = np.array([])
     free_index = []
+    tolerance = 1.0E-8
     
-    def compute(K,tol=1.0E-8,solver_opt=None):
+    def set_solver(solver_opt):
+        ''' Set solver option for the P_inverse class
+        '''
+        P_inverse.solver_opt = solver_opt
+    
+    def set_tolerance(tol):
+        ''' This methods sets P_inverse tolerance
+        '''
+        P_inverse.tolerance = tol
+
+    def compute(K,tol=None,solver_opt=None):
         ''' This method computes the kernel and inverse operator
         '''
         
         if solver_opt is None:
             solver_opt = P_inverse.solver_opt
-        
+
+        if tol is None:
+            tol = P_inverse.tolerance
+
         if solver_opt=='splusps':
             lu, idf, R = splusps(K,tol=tol)
             lu.U[idf,:] = 0.0

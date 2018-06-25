@@ -293,6 +293,13 @@ class FETIsubdomain(Assembly):
         self.cholesky_tolerance = 1.0E-6
         self.compute_cholesky_boolean = False
         
+        # pseudo inverse variables
+        self.pinv = amna.P_inverse()
+        self.pinv_tolerance = 1.0E-6
+        self.pinv.set_solver(self.solver_opt)
+        self.pinv.tolerance(self.pinv_tolerance)
+        self.compute_pinv_boolean = False
+        
         self.local_interface_nodes_dict = {}
         self.lambda_global_indices = []
         self.local_interface_dofs_dict = {}
@@ -655,7 +662,7 @@ class FETIsubdomain(Assembly):
             
         elif solver_opt=='svd': 
             Kinv,R = self.calc_pinv_and_null_space()
-            
+          
         else:
             print('Not implemented')
             return mp.matrix([])
@@ -734,6 +741,8 @@ class FETIsubdomain(Assembly):
             
     def calc_pinv_and_null_space(self,solver_opt='svd',tol=1.0E-8):
         
+        solver_opt = self.solver_opt
+        tol = self.pinv_tolerance
         if solver_opt=='svd':
             # without boundary conditions
             K, total_force = self.assemble_K_and_total_force()
