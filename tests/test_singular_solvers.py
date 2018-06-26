@@ -136,7 +136,8 @@ def test_singular_solver(comp, id, value = 1e8, solver_type='slusps'):
     start = timeit.clock() 
     K, f_ext = my_comp2.assembly_class.assemble_k_and_f_neumann()
     K, f_int = my_comp2.assembly_class.assemble_k_and_f()
-    K_inv = amfe.amna.P_inverse.compute(K,solver_opt = solver_type)
+    pinv_obj = amfe.amna.P_inverse()
+    K_inv = pinv_obj.compute(K,solver_opt = solver_type)
     up = K_inv.apply(f_ext)
     elapsed = timeit.clock()
     elapsed = elapsed - start

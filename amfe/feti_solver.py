@@ -289,17 +289,20 @@ class FETIsubdomain(Assembly):
         
         
         # internal decomposition variables
-        self.solver_opt = 'cholsps'
+        # deprecated variables
         self.cholesky_tolerance = 1.0E-6
         self.compute_cholesky_boolean = False
         
         # pseudo inverse variables
-        self.pinv = amna.P_inverse()
-        self.pinv_tolerance = 1.0E-6
-        self.pinv.set_solver(self.solver_opt)
-        self.pinv.tolerance(self.pinv_tolerance)
+        self.solver_opt = 'cholsps'
+        self.pinv_tolerance = 1.0E-8
+        self.Kinv = P_inverse() # P_inverse class
+        self.Kinv.set_tolerance(self.pinv_tolerance)
+        self.Kinv.set_solver_opt(self.solver_opt)
+        
         self.compute_pinv_boolean = False
         
+        # interface variables and index matrix
         self.local_interface_nodes_dict = {}
         self.lambda_global_indices = []
         self.local_interface_dofs_dict = {}
@@ -318,6 +321,12 @@ class FETIsubdomain(Assembly):
         '''
         self.cholesky_tolerance = tolerance      
 
+    def set_pinv_tolerance(self):
+        ''' set p inv tolerance for defining small pivots
+        or small eigenvalues
+        '''
+        self.pinv_tolerance = tolerance
+        
     def set_solver_option(self,solver_str='cholsps'):
         ''' This function set the solver option 
         for compute internal operator and solve linear systems
@@ -514,12 +523,19 @@ class FETIsubdomain(Assembly):
         
         K, fext = self.assemble_k_and_f_neumann()
         K, fint = self.assemble_k_and_f()
+        
         # getting force vector
         fexti = self.force.copy()
         finti = self.internal_force.copy()
         force = fexti + finti
-        self.total_force = fexti + finti
-        return K, self.total_force
+        total_force = fexti + finti
+        
+        # apply Dirichlet with boundary conditions
+        K, total_force = self.insert_dirichlet_boundary_cond(K,total_force)
+        self.stiffness = K
+        self.total_force = total_force
+        
+        return self.stiffness, self.total_force
     
     def solve_local_displacement(self, force=None, global_lambda=None, lambda_dict={}):
         ''' Solve local displacement given a gloval lambda vector
@@ -550,52 +566,37 @@ class FETIsubdomain(Assembly):
         # convert force to the right format
         if force.shape != (self.total_dof,):
             force = np.array(force).flatten()
-            
-        # convert global_lambda to the right format
-        if len(global_lambda.shape) > 1:
-            global_lambda = np.array(global_lambda).flatten()
-
-            
-        sub_id = self.submesh.key
+        
+        # initialize interface forces
         b_bar = np.zeros(self.total_dof)
-        for nei_id in self.submesh.neighbor_partitions:
-            if sub_id<nei_id:
-                lambda_id = (sub_id,nei_id)
-            else:    
-                lambda_id = (nei_id,sub_id)
-                       
-            local_id = lambda_dict[lambda_id]
-            Bi = self.B_dict[sub_id,nei_id]   
-            local_lambda = global_lambda[local_id]
-            
-            b_hati = Bi.T.dot(local_lambda)
-            b_bar += b_hati
+        
+        # convert global_lambda to the right format
+        if global_lambda is not None:
+            if len(global_lambda.shape) > 1:
+                global_lambda = np.array(global_lambda).flatten()
+
+            sub_id = self.submesh.key
+            for nei_id in self.submesh.neighbor_partitions:
+                if sub_id<nei_id:
+                    lambda_id = (sub_id,nei_id)
+                else:    
+                    lambda_id = (nei_id,sub_id)
+                           
+                local_id = lambda_dict[lambda_id]
+                Bi = self.B_dict[sub_id,nei_id]   
+                local_lambda = global_lambda[local_id]
                 
-        # solving K(s)u_bar(s) = f - b(s) in order to calculte the action of F(s)
+                b_hati = Bi.T.dot(local_lambda)
+                b_bar += b_hati
+                
+                
+        # solving K(s)u_bar(s) = f - b(s) in order to calculate the action of F(s)
         b = force - b_bar
         
-        if solver_opt=='cholsps':
-            if self.compute_cholesky_boolean:
-                Ui = self.full_rank_upper_cholesky.todense()
-                idf = self.zero_pivot_indexes
-            else:
-                Ui,idf,R = self.compute_cholesky_decomposition()
-
+        if not self.compute_pinv_boolean:
+            self.calc_pinv_and_null_space()
             
-            b[idf] = 0.0
-            u_bar = scipy.linalg.cho_solve((Ui,False),b)  
-        
-        elif solver_opt=='svd':
-            try:
-               Kinv = self.psedoinverse
-            
-            except:
-                Kinv,R = self.calc_pinv_and_null_space('svd')
-            
-            u_bar = Kinv.dot(b)
-            
-        else:
-            print('Solve option not implement yet')
+        u_bar = self.Kinv.apply(b)
         
         self.u_bar = np.matrix(u_bar).T
         self.displacement = np.array(u_bar).flatten()
@@ -656,17 +657,11 @@ class FETIsubdomain(Assembly):
         
         '''
         # getting local solver from obj variable
-        solver_opt = self.solver_opt
-        if solver_opt=='cholsps':
-            Ui,idf,R = self.compute_cholesky_decomposition()
+        try:
+            Kinv, R = self.calc_pinv_and_null_space()
+        except:
+            raise('Null space method not implemented')
             
-        elif solver_opt=='svd': 
-            Kinv,R = self.calc_pinv_and_null_space()
-          
-        else:
-            print('Not implemented')
-            return mp.matrix([])
-        
         self.set_null_space(R)
         return R
 
@@ -675,24 +670,22 @@ class FETIsubdomain(Assembly):
         
         
         arguments
-            R : np.matrix
+            R : np.array
                 matrix with subdomain null space
             
             return None
         '''
         
-        if R is not None:
-            try:
+        if R is not None and len(R)>0:
+            force = np.array(self.total_force).flatten()
+            self.null_space_force = -R.T.dot(force)
+            self.null_space_size  = R.shape[1]
             
-                force = np.array(self.total_force).flatten()
-                self.null_space_force = -R.T.dot(force)
-                
-            except:
-                pass
         else:
-            R = np.matrix([])
-        
-        self.null_space_size  = R.shape[1]
+            R = np.array([])
+            self.null_space_force = np.array([])
+            self.null_space_size  = 0
+            
         self.null_space = R
         
         return R
@@ -713,68 +706,45 @@ class FETIsubdomain(Assembly):
         d_{(i,j)} = B_{(i,j)}*u_i
         '''
         
-        solver_opt = self.solver_opt
-        
         # getting force vector
         force = self.total_force
         if force.shape != (self.total_dof,):
             force = np.array(force).flatten()
         
-        if solver_opt=='cholsps':
-            if self.compute_cholesky_boolean:
-                Ui = self.full_rank_upper_cholesky.todense()
-            else:
-                Ui,idf,R = self.compute_cholesky_decomposition()
-            
-            # calculate the dual force B*Kpinv*f            
-            u_hat = scipy.linalg.cho_solve((Ui,False),force)
+        if self.compute_pinv_boolean:
+            u_hat = self.Kinv.apply(force)
 
             for (sub_id,nei_id) in self.B_dict: 
                 Bi = self.B_dict[sub_id,nei_id]
                 self.dual_force_dict[sub_id,nei_id] = Bi.dot(u_hat)
 
         else:
-            logging.error('Solver type not implemented')
-            return None
+            raise('Please, compute pseudo-inverse method before calling this method')
             
         return self.dual_force_dict
             
-    def calc_pinv_and_null_space(self,solver_opt='svd',tol=1.0E-8):
+    def calc_pinv_and_null_space(self):
+        ''' compute the pseudoinverse of the stiffness matrix
+        and null space
         
+        see set_solver_option and set_pinv_tolerance
+        
+        '''
         solver_opt = self.solver_opt
         tol = self.pinv_tolerance
-        if solver_opt=='svd':
-            # without boundary conditions
-            K, total_force = self.assemble_K_and_total_force()
-
-            # with boundary conditions
-            K, total_force = self.insert_dirichlet_boundary_cond(K,total_force)
-            K = K.todense()
-            V,val,U = np.linalg.svd(K)
+        if not self.compute_pinv_boolean:
+            if self.stiffness is None:
+                self.assemble_K_and_total_force()
             
-            total_var = np.sum(val)
+            K = self.stiffness
+            Pinv_obj = self.Kinv.compute(K,tol=tol,solver_opt=solver_opt)
+            R = Pinv_obj.null_space
+            self.compute_pinv_boolean = True
             
-            norm_eigval = val/val[0]
-            idx = [i for i,val in enumerate(norm_eigval) if val>tol]
-            val = val[idx]
-            
-            
-            invval = 1.0/val[idx]
-
-            subV = V[:,idx]
-            
-            Kinv =  np.matmul( subV,np.matmul(np.diag(invval),subV.T))
-            
-            last_idx = idx[-1]
-            R = V[:,last_idx+1:]
-            self.psedoinverse = Kinv
-            #self.null_space = R 
-            #self.null_space_size  = R.shape[1]
         else:
-            print('Solver option not implemented')
-            return None
+            R = self.get_null_space()
         
-        return Kinv,R
+        return self.Kinv, R
         
     def insert_dirichlet_boundary_cond(self,K=None,f=None):
         
@@ -1490,7 +1460,7 @@ class SuperDomain():
             # add feti domain to super_domain dict
             self.feti_subdomains_dict[sub_key] = sub_i
          
-        
+        self.master.build_local_to_global_mapping()
         self.build_local_to_global_mapping()
 
         return self.feti_subdomains_dict
@@ -1511,14 +1481,10 @@ class SuperDomain():
             self.displacement_global_dict[sub_key] = np.arange(dof_init,last_dof)
             dof_init = last_dof
             
-            if self.method == 'cholsps':
-                Ui, idf, R = sub.compute_cholesky_decomposition()
-            elif self.method == 'svd':
-                Kinv, R = sub.calc_pinv_and_null_space()
-                idf = R.shape[1]
-            else:
-                logging.error('Method = %s is not defined' %self.method)
-                
+            sub.set_solver_option(self.method)
+            Kinv, R = sub.calc_pinv_and_null_space()
+            idf = len(R)
+
             sub.set_null_space(R)
             
             if idf:
@@ -1588,6 +1554,9 @@ class SuperDomain():
         return self.global_B
 
     def assemble_global_G_and_e(self):
+        ''' assemble global G and e based on 
+        based on class information
+        '''
 
         if self.global_B is None:
             B = self.assemble_global_B()
@@ -1623,7 +1592,42 @@ class SuperDomain():
             e[idy] = ei
 
         return G, e
-
+    
+    def assemble_G_and_e(self):
+        ''' assemble G and e based on Master class
+        '''
+        key_list = self.master.subdomain_keys
+        
+        G = np.zeros([self.master.total_interface_dof,self.master.total_nullspace_dof])
+        e = np.zeros(self.master.total_nullspace_dof)
+        
+        for sub_key in key_list:
+            i_index = self.master.alpha_dict[sub_key]
+            
+            if not i_index:
+                continue
+            # assemble null force
+            ei = self.master.null_space_force_dict[sub_key]
+            e[i_index] = np.array(ei).flatten()
+            
+            for nei_key in key_list:
+                if sub_key!=nei_key:
+                    if sub_key<nei_key:
+                        interface_pair = (sub_key,nei_key)
+                    else:
+                        interface_pair = (nei_key,sub_key)
+                        
+                    j_index = self.master.lambda_dict[interface_pair]
+                    if not j_index:
+                        continue
+                    
+                    Gij = self.master.G_dict[sub_key,nei_key]
+                    G[np.ix_(j_index,i_index)] = Gij
+        
+        self.G = G.T
+        self.e = e
+        return self.G,self.e
+        
     def compute_pseudoinverse(self,K):
         Kinv = np.linalg.pinv(K)
         return Kinv
@@ -1646,8 +1650,8 @@ class SuperDomain():
     def eval_subdomain_displacement(self,global_lambda,global_alpha):
 
         u = {}
-        lambda_dict = self.lambda_global_dict
-        alpha_dict = self.alpha_global_dict
+        lambda_dict = self.master.lambda_dict
+        alpha_dict = self.master.alpha_dict
         method = self.method
         for sub_key in self.domains_key_list:
             sub = self.get_feti_subdomains(sub_key)
@@ -1681,7 +1685,31 @@ class SuperDomain():
 
         S_block = scipy.linalg.block_diag(*S_list)
         return S_block
+        
+    def solve_dual_interface(self):
+        ''' solve the dual interface problem
+        '''
+        G, e = self.assemble_G_and_e()
+        F, d = self.assemble_F_and_d()
+        
+        n_null = len(e) # null space size
+        n_int = len(d) # interface size
+        Zeros = np.zeros([n_null ,n_null])
 
+        A1 = np.hstack((F,G.T))
+        A2 = np.hstack((G,Zeros))
+
+        A = np.vstack((A1,A2))
+        b = np.concatenate((d,e))
+
+        # Dual interface problem
+        x = np.linalg.solve(A,b)
+        global_lambda = x[:n_int]
+        global_alpha= x[n_int:]
+
+        return global_lambda, global_alpha
+        
+        
 
 class Boundary():
     def __init__(self,submesh_obj,val = 0, direction = 'normal', typeBC = 'neumann'):

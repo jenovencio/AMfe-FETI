@@ -323,32 +323,53 @@ class P_inverse():
         K_pinv : object
         object containg the null space and the inverse operator
     '''
-    solver_opt = 'splusps'
-    list_of_solvers = ['cholsps','splusps','svd']
-    pinv = None
-    null_space = np.array([])
-    free_index = []
-    tolerance = 1.0E-8
+    def __init__(self):
+        
+        self.solver_opt = 'splusps'
+        self.list_of_solvers = ['cholsps','splusps','svd']
+        self.pinv = None
+        self.null_space = np.array([])
+        self.free_index = []
+        self.tolerance = 1.0E-8
     
-    def set_solver(solver_opt):
-        ''' Set solver option for the P_inverse class
+    def set_tolerance(self,tol):
+        ''' setting P_inverse tolerance
+        
+        arguments 
+            tol : tol
+                new pseudo-inverse tolerance
+        return 
+            None
         '''
-        P_inverse.solver_opt = solver_opt
+        self.tolerance = tol
+        
+        return 
     
-    def set_tolerance(tol):
-        ''' This methods sets P_inverse tolerance
+    def set_solver_opt(self,solver_opt):
+        ''' This methods set the P_inverse method
+        
+            argument
+                solver_opt : str
+                    string with solver opt
+            
+            returns 
         '''
-        P_inverse.tolerance = tol
-
-    def compute(K,tol=None,solver_opt=None):
+        if solver_opt in self.list_of_solvers:
+            self.solver_opt = solver_opt
+        else:
+            raise('Error! Select solver is not implemented. ' + \
+            '\n Please check list_of_solvers variable.')
+        
+        
+    def compute(self,K,tol=None,solver_opt=None):
         ''' This method computes the kernel and inverse operator
         '''
         
         if solver_opt is None:
-            solver_opt = P_inverse.solver_opt
+            solver_opt = self.solver_opt
 
         if tol is None:
-            tol = P_inverse.tolerance
+            tol = self.tolerance
 
         if solver_opt=='splusps':
             lu, idf, R = splusps(K,tol=tol)
@@ -373,14 +394,16 @@ class P_inverse():
         else:
             raise('Solver %s not implement. Check list_of_solvers.')
         
-        P_inverse.pinv = K_pinv
-        P_inverse.free_index = idf
+        self.pinv = K_pinv
+        self.free_index = idf
         if R is not None:
-            P_inverse.null_space = R
-
-        return P_inverse
+            self.null_space = R
+        else:
+            self.null_space = np.array([])
+            
+        return self
         
-    def apply(f,alpha=np.array([])):
+    def apply(self,f,alpha=np.array([])):
         ''' function to apply K_pinv
         and calculate a solution based on alpha
         by the default alpha is set to the zero vector
@@ -391,8 +414,8 @@ class P_inverse():
             alpha : np.array
                 combination of the kernel of K alpha*R
         '''
-        K_pinv = P_inverse.pinv
-        idf = P_inverse.free_index
+        K_pinv = self.pinv
+        idf = self.free_index
         
         # f must be orthogonal to the null space R.T*f = 0 
         if idf:
@@ -401,14 +424,14 @@ class P_inverse():
         u_hat = K_pinv(f)
         
         if alpha.size>0:
-            u_hat += P_inverse.calc_kernel_correction(alpha)
+            u_hat += self.calc_kernel_correction(alpha)
             
         return u_hat
         
-    def calc_kernel_correction(alpha):
+    def calc_kernel_correction(self,alpha):
         ''' apply kernel correction to
         calculate another particular solution
         '''
-        R = P_inverse.null_space
+        R = self.null_space
         u_corr = R.dot(alpha)
         return u_corr

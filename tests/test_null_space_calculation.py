@@ -34,7 +34,8 @@ def test_null_space(alg_type,K1,tolerance=1.0E-3, solver_tol=1.0E-8):
     '''
     
     start = timeit.clock() 
-    K_inv = amfe.amna.P_inverse.compute(K1, tol = solver_tol, solver_opt = alg_type)
+    pinv_obj = amfe.amna.P_inverse()
+    K_inv = pinv_obj.compute(K1, tol = solver_tol, solver_opt = alg_type)
     R1 = K_inv.null_space
     elapsed = timeit.clock()
     elapsed = elapsed - start
