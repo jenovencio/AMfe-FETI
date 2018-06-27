@@ -1790,7 +1790,9 @@ class Mesh:
             elem_group_series = elem_dataframe[group_type]
         
         else:
-            print('WARNING. Please provide a elem_group_series for split mesh in grops.')
+            print('List of avaliables elem_group series:')
+            print(list(elem_dataframe.columns))
+            raise ValueError('WARNING. Please provide a elem_group series for splitting mesh in groups.')
             return None
     
         # creating local dictionary for grouping
@@ -2076,16 +2078,24 @@ class SubMesh():
         
         Mesh.split_in_groups(self,group_type, self.parent_mesh, self.elem_dataframe)
         
+
+        # for all kinds of groups
+        for key in self.groups_dict:
+            self.groups[key].__inherit_neumann_nodes__(self.neumann_submesh)
+            self.groups[key].__inherit_dirichlet_nodes__(self.dirichlet_submesh)
+            self.groups[key].set_material(self.__material__)
+
+
         if group_type == 'partition_id':
-            
             self.has_partitions = True  
             
             for key in self.groups_dict:
                 self.groups[key].is_partition = True
                 self.groups[key].__find_interior_and_interface_element__()
-                self.groups[key].__inherit_neumann_nodes__(self.neumann_submesh)
-                self.groups[key].__inherit_dirichlet_nodes__(self.dirichlet_submesh)
-                self.groups[key].set_material(self.__material__)
+                #self.groups[key].__inherit_neumann_nodes__(self.neumann_submesh)
+                #self.groups[key].__inherit_dirichlet_nodes__(self.dirichlet_submesh)
+                #self.groups[key].set_material(self.__material__)
+
             # find interface nodes
             for sub1_key in self.groups_dict:
                 sub1 = self.groups[sub1_key]
