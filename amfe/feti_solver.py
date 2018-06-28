@@ -737,7 +737,9 @@ class FETIsubdomain(Assembly):
                 self.assemble_K_and_total_force()
             
             K = self.stiffness
-            Pinv_obj = self.Kinv.compute(K,tol=tol,solver_opt=solver_opt)
+            self.Kinv.set_solver_opt(solver_opt)
+            self.Kinv.set_tolerance(tol)
+            Pinv_obj = self.Kinv.compute(K)
             R = Pinv_obj.null_space
             self.compute_pinv_boolean = True
             
@@ -969,10 +971,12 @@ class FETIsubdomain(Assembly):
                 dict with local f(i,j)*\lambda(i,j)
         '''
         
-        #solving K(i)u(i) = b(i,j) in order to calculte the action of f(i,j)
+        #solving K(i)u(i) = b(i,j) in order to calculate the action of f(i,j)
+        # -global_lambda must be negative due to the solve_local_displacement 
+        # implementation
         force = np.zeros(self.total_dof)
         u_i = self.solve_local_displacement(force,
-                                            global_lambda, 
+                                            -global_lambda, 
                                             lambda_dict)
                                             
         sub_id = self.key
@@ -1633,6 +1637,9 @@ class SuperDomain():
         return Kinv
 
     def assemble_F_and_d(self):
+        ''' Assemble F [dual interface operator] and 
+        d 'gap vector' suing SVD algorithm
+        '''
 
         if self.global_B is None:
             B = self.assemble_global_B()
@@ -1677,7 +1684,7 @@ class SuperDomain():
         return self.s_list
 
     def assemble_block_primal_schur_complement(self,type='schur'):
-
+    
         try:
             S_list = self.S_list
         except:
@@ -1685,9 +1692,65 @@ class SuperDomain():
 
         S_block = scipy.linalg.block_diag(*S_list)
         return S_block
+    
+    def action_of_global_F(self,global_lambda):
+        ''' apply F using local psedoinverse operator
+        based on chosen methods:
+        ['cholsps','svd','splusps']
         
+        argument
+            global_lambda : np.array
+                self-equilibrated interface force 
+        return 
+            Fim : np.array
+                F times 
+        '''
+        master = self.master
+        partitions_list = self.master.subdomain_keys
+        for sub_id in partitions_list:
+            sub_i = self.feti_subdomains_dict[sub_id]
+            local_h_dict = sub_i.apply_local_F(global_lambda,self.master.lambda_dict)
+            self.master.append_h(local_h_dict)
+            
+        Fim = self.master.assemble_global_F_action() # Fpk = B*Kpinv*B'*pk
+        return Fim 
+    
+    def assemble_global_d(self):
+        ''' assemble global d = sum(i) B_i*Kpinv_i*f_i 
+        using local psedoinverse operator
+        based on chosen methods:
+        ['cholsps','svd','splusps']
+        
+        return 
+            d : np.array
+                gap among subdomains without interface forces
+        '''
+        partitions_list = self.master.subdomain_keys
+        for sub_id in partitions_list:
+            sub_i = self.feti_subdomains_dict[sub_id]
+            self.master.append_d_hat(sub_i.dual_force_dict)
+
+        d = self.master.assemble_global_d_hat() # dual force global assemble
+        return d
+    
     def solve_dual_interface(self):
-        ''' solve the dual interface problem
+        ''' solve the dual interface problem 
+        using a direct solver.
+        
+        F and d are build using a SVD technique 
+        which is costly but allow us to build the global F matrix
+        
+        Since other algorithm for computing the action of F are supported
+        the alpha "Rigid Body Correction" is calculated using a local F action
+        and the gap "dgap" produced by this local action
+        
+        dgap = d_{local} - F_{local}* \lambda 
+        alpha = inv(GGT)*(G*dgap)
+        
+        return 
+            global_lambda : np.array
+                self-equilibrated interface force
+        
         '''
         G, e = self.assemble_G_and_e()
         F, d = self.assemble_F_and_d()
@@ -1706,9 +1769,40 @@ class SuperDomain():
         x = np.linalg.solve(A,b)
         global_lambda = x[:n_int]
         global_alpha= x[n_int:]
-
-        return global_lambda, global_alpha
         
+        return global_lambda
+        
+    def solve_alpha_given_error_gap(self,dgap):
+        ''' Solving alpha to close the gap among subdomains
+        based on local operators, this is necessary because
+        the gap depends on a chosen Pseudo inverse operator
+        then alpha must be find in with the real gap produced
+        by the local operator
+        
+        GGT is a global property and must be in the master object
+        since every domain must have the information about GGT
+        
+        G is a local property and must be implemented in SuperDomain
+        in order to apply it in a Global level
+        
+        GGT*\alpha = G*dgap
+        
+        argument 
+            dgap : np.array
+                array with the gap among subdomains, the gap
+                must be calculated based on dgap = d - F*\lambda 
+                where F depepend on local pseudo-inverse operator
+             
+        return 
+            alpha : np.array
+                vector which closes the gap among subdomains
+        
+        '''
+        #GGT = self.master.assemble_GGT()
+        G = self.G
+        GGT = G.dot(G.T)
+        alpha = np.linalg.solve(GGT,G.dot(dgap))
+        return alpha
         
 
 class Boundary():

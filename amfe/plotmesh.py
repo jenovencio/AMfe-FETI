@@ -780,12 +780,12 @@ def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
     
     return p, ax
     
-def plot_superdomain(superdomain_obj, scale = 1, ax1 = None):
+def plot_superdomain(superdomain_obj, factor = 1, ax = None):
     ''' plot superdomain results
     '''
-    if ax1 == None:
+    if ax == None:
         fig = plt.figure()
-        ax1 = plt.axes() 
+        ax = plt.axes() 
         
     connectivity = {}
     nodes = {}
@@ -794,6 +794,6 @@ def plot_superdomain(superdomain_obj, scale = 1, ax1 = None):
         sub = superdomain_obj.get_feti_subdomains(sub_key)
         connectivity[sub_key] = sub.mesh.connectivity
         nodes[sub_key] = sub.mesh.nodes
-        quad, ax1 = plotDeformQuadMesh(connectivity[sub_key],nodes[sub_key],superdomain_obj._subdomain_displacement_dict[sub_key],scale,ax1,color_id = sub_key ) 
+        quad, ax = plotDeformQuadMesh(connectivity[sub_key],nodes[sub_key],superdomain_obj._subdomain_displacement_dict[sub_key],factor,ax,color_id = sub_key ) 
           
-    return ax1
+    return ax

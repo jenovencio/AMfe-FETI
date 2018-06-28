@@ -164,9 +164,8 @@ def splusps(A,tol=1.0e-6):
 
     idf = np.where(abs(diag_U)<tol)[0].tolist()
     
-    R = calc_null_space_of_upper_trig_matrix(U,idf)
-
-    if R is not None:
+    if len(idf)>0:
+        R = calc_null_space_of_upper_trig_matrix(U,idf)
         R = Pc.A.dot(R)
     else:
         R = np.array([])
@@ -275,7 +274,6 @@ def pinv_and_null_space_svd(K,tol=1.0E-8):
 
     return Kinv,R
         
-
 def is_null_space(K,v, tol=1.0E-3):
     ''' this function checks if 
     a vector is belongs to the null space of
@@ -331,6 +329,7 @@ class P_inverse():
         self.null_space = np.array([])
         self.free_index = []
         self.tolerance = 1.0E-8
+        self.matrix = None
     
     def set_tolerance(self,tol):
         ''' setting P_inverse tolerance
@@ -360,10 +359,12 @@ class P_inverse():
             raise('Error! Select solver is not implemented. ' + \
             '\n Please check list_of_solvers variable.')
         
-        
     def compute(self,K,tol=None,solver_opt=None):
         ''' This method computes the kernel and inverse operator
         '''
+        
+        # store matrix to future use
+        self.matrix = K
         
         if solver_opt is None:
             solver_opt = self.solver_opt
@@ -373,11 +374,19 @@ class P_inverse():
 
         if solver_opt=='splusps':
             lu, idf, R = splusps(K,tol=tol)
-            lu.U[idf,:] = 0.0
-            lu.U[:,idf] = 0.0
-            lu.U[idf,idf] = 1.0
-            K_pinv = lu.solve
             
+            # add constraint in K matrix and applu SuperLu again
+            if len(idf):
+                Kmod = K[:,:] # creating copy because np.array is a reference
+                idf_u = [np.argwhere(lu.perm_c==elem)[0][0] for elem in idf]
+                idf_l = [np.argwhere(lu.perm_r==elem)[0][0] for elem in idf]
+                Kmod[idf_u,:] = 0.0
+                Kmod[:,idf_u] = 0.0
+                Kmod[idf_u,idf_u] = max(K.data)
+                lu, idf_garbage, R_garbage = splusps(Kmod,tol=tol)
+                idf = idf_u
+                
+            K_pinv = lu.solve
             
         elif solver_opt=='cholsps':
             U,idf,R =cholsps(K,tol=tol)
@@ -403,7 +412,7 @@ class P_inverse():
             
         return self
         
-    def apply(self,f,alpha=np.array([])):
+    def apply(self,f,alpha=np.array([]),check=False):
         ''' function to apply K_pinv
         and calculate a solution based on alpha
         by the default alpha is set to the zero vector
@@ -413,6 +422,8 @@ class P_inverse():
                 right hand side of the equation 
             alpha : np.array
                 combination of the kernel of K alpha*R
+            check : boolean
+                check if f is orthogonal to the null space
         '''
         K_pinv = self.pinv
         idf = self.free_index
@@ -420,6 +431,14 @@ class P_inverse():
         # f must be orthogonal to the null space R.T*f = 0 
         if idf:
             f[idf] = 0.0
+        
+        #if self.solver_opt == 'cholsps':
+        #    f[idf] = 0.0
+        
+        if check:
+            if not self.has_solution(f):
+                raise('System has no solution because right hand side is \
+                       \n not orthogonal to the null space of the matrix operator.')
         
         u_hat = K_pinv(f)
         
@@ -435,3 +454,59 @@ class P_inverse():
         R = self.null_space
         u_corr = R.dot(alpha)
         return u_corr
+    
+    def check_null_space(self,tolerance=1.0E-3):
+        ''' check null calculated null space is a null space 
+        of self.matrix considering two aspects, 
+        1. K*v = 0    where v is a vector in the R = [v1, v2  ...,vm]
+            check ||K*v||/||v|| us < tolerance
+        2. R is a full row rank matrix
+        
+        arguments:
+            tolerance : float
+                tolerance for the norm of the vector v in R
+               by the the K1 matrix, which represents a tolerance for
+               checking if v in R is really a kernel vector of K
+        return
+            bool : boolean
+            
+            True if all vector in null space are in the tolerance
+        ''' 
+        bool = False
+        K = self.matrix
+        R = self.null_space
+        n,m = R.shape
+        null_space_size =  0
+        for v in R.T:
+            if is_null_space(K,v, tol=tolerance):
+                null_space_size += 1
+        
+        R_rank = np.linalg.matrix_rank(R.T)
+        if m==null_space_size and R_rank==m:
+            bool = True
+        
+        return bool
+    
+    def has_solution(self,f):
+        ''' check if f is orthogonal to the null space
+        
+        arguments
+            f : np.array
+                right hand side of Ku=f
+        return 
+            boolean
+        
+        '''
+        R = self.null_space
+        v = R.T.dot(f)
+        ratio = np.linalg.norm(v)/np.linalg.norm(f)
+        
+        bool = False
+        if ratio<self.tolerance:
+            bool= True
+        return bool
+        
+        
+        
+        
+        

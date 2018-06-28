@@ -75,7 +75,7 @@ class test_null_space_solvers(unittest.TestCase):
         print_columns = 50
         print('#'*print_columns)
         print('Testing Null space calculation')
-        num_of_matrices = 8
+        num_of_matrices = 9
         for i in range(1,num_of_matrices+1):
             print('#'*print_columns)
             str_path = 'K_matrices_kernel_3/K_%i.pkl' %i
