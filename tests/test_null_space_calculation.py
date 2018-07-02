@@ -122,10 +122,71 @@ class test_null_space_solvers(unittest.TestCase):
         print('#'*print_columns )
         list_alf_type = [str_label]
         self.calc_null_space_size_3(list_alf_type,solver_tolerance)
+           
+    def calc_null_space_size_6(self, list_alf_type = ['cholsps', 'splusps', 'svd'], solver_tolerance=1.0E-8):
+        ''' This function load K matrix with kernel size equal 3
+        and computes the Kernel using diffente algorithms
+        and check is the calculated kernel is right
+        '''
+        #list_alf_type = ['cholsps', 'splusps', 'svd']
+        kernel_tolerance = 1.0E-2
+        print_columns = 50
+        print('#'*print_columns)
+        print('Testing Null space calculation')
+        num_of_matrices = 3
+        for i in range(1,num_of_matrices+1):
+            print('#'*print_columns)
+            str_path = 'K_matrices_kernel_6/K%i.pkl' %i
+            print('Loading %s' %str_path)
+            K1 = amfe.load_obj(str_path)
+            
+            for alg_type in list_alf_type:
+                print('*'*print_columns)
+                print('Algotihm type choosen is %s' %alg_type)
+                null_space_size, elapsed  = test_null_space(alg_type,K1,tolerance=kernel_tolerance,solver_tol= solver_tolerance)
+                self.assertEqual(null_space_size,6)
+                print('*'*print_columns)
+            print('#'*print_columns)
+            
+    def test_null_space_size_6_svd(self):
+        print_columns = 50
+        str_label = 'svd'
+        solver_tolerance = 1.0E-8
+        hash_size = int((print_columns - len(str_label))/2)
+        print('#'*print_columns )
+        print('#'*hash_size + str_label.upper() + '#'*hash_size)
+        print('#'*print_columns )
+        list_alf_type = [str_label]
+        self.calc_null_space_size_6(list_alf_type,solver_tolerance)     
+    
+    def test_null_space_size_6_slusps(self):     
+        print_columns = 50
+        str_label = 'splusps'
+        solver_tolerance = 1.0E-8
+        hash_size = int((print_columns - len(str_label))/2)
+        print('#'*print_columns )
+        print('#'*hash_size + str_label.upper() + '#'*hash_size)
+        print('#'*print_columns )
+        list_alf_type = [str_label]
+        self.calc_null_space_size_6(list_alf_type,solver_tolerance)
+        
+    def test_null_space_size_6_cholsps(self):
+        print_columns = 50
+        str_label = 'cholsps'
+        solver_tolerance = 1.0E-8
+        hash_size = int((print_columns - len(str_label))/2)
+        print('#'*print_columns )
+        print('#'*hash_size + str_label.upper() + '#'*hash_size)
+        print('#'*print_columns )
+        list_alf_type = [str_label]
+        self.calc_null_space_size_6(list_alf_type,solver_tolerance)
         
         
 if __name__ == '__main__':
-    unittest.main()
-    #test = test_null_space_solvers()
+    #unittest.main()
+    test = test_null_space_solvers()
     #test.test_null_space_size_3_slusps()
     #test.test_null_space_size_3_cholsps()
+    test.test_null_space_size_6_svd()
+    test.test_null_space_size_6_slusps()
+    test.test_null_space_size_6_cholsps()

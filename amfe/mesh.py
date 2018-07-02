@@ -1799,7 +1799,12 @@ class Mesh:
         groups_dict = {}        
         for elem, group_id in elem_group_series.iteritems():
             if group_id is not None:
-                group_id = int(group_id)
+                try:
+                    group_id = int(group_id)
+                except:
+                    logging.debug('Warning! Group id is type string. Some function may not work properly!')
+                    group_id = group_id
+
                 try:
                     groups_dict[group_id].append(elem)
                     
@@ -2192,7 +2197,41 @@ class SubMesh():
     
     def append_dirichlet_bc(self,dir_submesh):
         self.dirichlet_submesh.append(dir_submesh)
-        
+    
+    def get_submesh_connectivity(self):
+        ''' this method get then connectivity matrix of a subdomain
+        this methods works for different types of element
+
+        The connectivity is a list where the index represent the number of the element
+        in a local reference
+
+        return 
+            connectivity : list
+                dict with elements connectivity, the id are the number
+                local references, and can not be associated with global mesh
+                object
+
+        '''
+
+        connectivity = []
+        node_idx = self.parent_mesh.node_idx
+        elements_df = self.elem_dataframe
+        for index, ele in elements_df.iterrows():
+            no_of_nodes = amfe2no_of_nodes[ele.el_type]
+            connectivity.append(list(ele[node_idx :
+                                    node_idx + no_of_nodes].astype(int)))
+
+        return connectivity
+
+    def get_element_type_list(self):
+        ''' This function return a list of element type in submesh
+
+        return 
+            elem_type_list : list
+                list with element types in SubMesh
+        '''
+        return list(set(self.elem_dataframe.el_type))
+
         
 class Submesh_Boundary():
     
