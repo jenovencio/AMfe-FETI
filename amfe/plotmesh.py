@@ -833,6 +833,11 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                 connect = get_triangule_faces_from_tetrahedral(connect)
                 ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
                 legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+            elif elem_type=='Hexa20':
+                connect = get_quad_faces_from_hexa(np.array(connect).T[0:6].T)
+                ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+                
             else:
                 raise('Type of element = %s not support by this method.' %elem_type)
         
@@ -990,20 +995,58 @@ def get_triangule_faces_from_tetrahedral(tetrahedron_list,surface_only=True):
         for i,j,k in itertools.combinations([0,1,2,3], 3):
             tri.append([Tet[i],Tet[j],Tet[k]])
     
-    unique_tri = list(np.unique(tri,axis=0))
+    unique_tri_list = list(np.unique(tri,axis=0))
 
     if surface_only:
         surface_tri = []
-        for unique_tri in unique_tri:
+        for unique_tri in unique_tri_list:
             num_of_occurances = tri.count(unique_tri.tolist())
             if num_of_occurances==1:
                 surface_tri.append(unique_tri)
         tri_list = surface_tri
         
     else:
-        tri_list = unique_tri
+        tri_list = unique_tri_list
 
     return tri_list
+
+
+def get_quad_faces_from_hexa(hexa_list,surface_only=True):
+    ''' Create a list of 2D faces based on the index of 
+    of a 3D Hexa
+
+    arguments
+        hexa_list : list
+            list with the index of a tetraedron [i, j, k, l, h, g]
+        
+        surface_only : Boolean
+            only keep the Triangules in the Surface of the list of tetraedrons
+    return 
+        quad_list : list
+            list with the index [i, j, k, h] of a the unique set triagules faces 
+            in the tetrahefron list
+
+    '''
+
+    quad =[]
+    for Hex in hexa_list:
+        for i,j,k,h in itertools.combinations([0,1,2,3,4,5], 4):
+            quad.append([Hex[i],Hex[j],Hex[k],Hex[h]])
+    
+    unique_quad_list = list(np.unique(quad,axis=0))
+
+    if surface_only:
+        surface_quad = []
+        for unique_quad in unique_quad_list:
+            num_of_occurances = quad.count(unique_quad.tolist())
+            if num_of_occurances==1:
+                surface_quad.append(unique_quad)
+        quad_list = surface_quad        
+    else:
+        quad_list = unique_quad_list 
+
+    return quad_list
+
 
 def plot_3D_interface_nodes(nodes_list,node_coord, color=(0,0,0), ax=None):
     ''' This function plots the nodes

@@ -856,7 +856,6 @@ class Mesh:
         print('*************************************************************')
         return
 
-
     def import_msh(self, filename, scale_factor=1.):
         '''
         Import a gmsh-mesh.
