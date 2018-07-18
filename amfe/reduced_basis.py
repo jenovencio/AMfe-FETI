@@ -5,6 +5,7 @@ Reduced basis methods...
 import numpy as np
 import scipy as sp
 from scipy import linalg
+from scipy.sparse import linalg as splinalg
 
 from .solver import solve_sparse, PardisoSolver
 
@@ -294,7 +295,11 @@ def craig_bampton(M, K, b, no_of_modes=5, one_basis=True):
     '''
     # boundaries
     ndof = M.shape[0]
-    b_internal = b.reshape((ndof, -1))
+    try:
+        b_internal = b.reshape((ndof, -1))
+    except:
+        b_internal = b
+        
     indices = sp.nonzero(b)
     boundary_indices = list(set(indices[0])) # indices
     no_of_inputs = b_internal.shape[-1]
@@ -307,7 +312,11 @@ def craig_bampton(M, K, b, no_of_modes=5, one_basis=True):
         f = - K[:,index]
         f[boundary_indices] = 0
         f[index] = 1
-        V_static_tmp[:,i] = solve_sparse(K_tmp, f, matrix_type='symm')
+        try:
+            V_static_tmp[:,i] = solve_sparse(K_tmp, f, matrix_type='symm')
+        except:
+            V_static_tmp[:,i] = splinalg.spsolve(K_tmp, f)
+
     # Static Modes:
     V_static = np.zeros((ndof, no_of_inputs))
     for i in range(no_of_inputs):
@@ -320,7 +329,11 @@ def craig_bampton(M, K, b, no_of_modes=5, one_basis=True):
     M_tmp[boundary_indices, :] *= 0
     M_tmp[boundary_indices, boundary_indices] = 1E0
     K_tmp[boundary_indices, boundary_indices] = 1E0
-    omega, V_dynamic = linalg.eigh(K_tmp, M_tmp)
+    try:
+        omega, V_dynamic = linalg.eigh(K_tmp, M_tmp)
+    except:
+        omega, V_dynamic = splinalg.eigsh(K_tmp, M_tmp)
+
     indexlist = np.nonzero(np.round(omega - 1, 3))[0]
     omega = np.sqrt(omega[indexlist])
     V_dynamic = V_dynamic[:, indexlist]
