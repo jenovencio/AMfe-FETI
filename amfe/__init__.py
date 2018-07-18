@@ -41,7 +41,13 @@ from .num_exp_toolbox import *
 
 #FETI solver stuff
 from .feti_solver import *
-from .MPIfetisolver import *
+
+try:
+	from .MPIfetisolver import *
+except:
+	print('WARNING!!!! mpi4py is not working, please check if you have a mpi installed')
+	pass
+
 
 #Import plot library 
 from .plotmesh import * 

@@ -7,6 +7,8 @@ Created on Wed Dec 20 08:35:26 2017
 
 # importing mpy4py
 from mpi4py import MPI
+
+	
 import os
 
 comm = MPI.COMM_WORLD
