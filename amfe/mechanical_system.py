@@ -21,6 +21,8 @@ from .assembly import Assembly
 from .boundary import DirichletBoundary
 from .boundary import Boundary
 from .solver import *
+from scipy.sparse import linalg as splinalg
+import scipy.sparse as sparse
 
 
 __all__ = [
@@ -31,7 +33,8 @@ __all__ = [
     'reduce_mechanical_system',
     'convert_mechanical_system_to_state_space',
     'reduce_mechanical_system_state_space',
-    'MechanicalAssembly'
+    'MechanicalAssembly',
+    'CraigBamptonComponent'
 ]
 
 
@@ -176,8 +179,14 @@ class MechanicalSystem():
             self.mesh_class.load_group_to_mesh(key, material, mesh_prop)
             submesh = self.mesh_class.set_domain(mesh_prop,key)
             submesh.set_material(material)
+            
             self.no_of_dofs_per_node =self.mesh_class.no_of_dofs_per_node
-            self.dirichlet_class.no_of_unconstrained_dofs = self.mesh_class.no_of_dofs
+            try:
+                self.dirichlet_class.no_of_unconstrained_dofs = self.mesh_class.no_of_dofs
+            except:
+                print('No Dirichlet Boundary conditions was found')
+                pass
+                
             self.assembly_class.preallocate_csr()
             self.domain = submesh
         except:
@@ -1692,25 +1701,167 @@ class MechanicalAssembly(MechanicalSystem):
 
 
 class CraigBamptonComponent(MechanicalSystem):
-	
-	def __init__(self):
-        #super().__init__()
-	
-		self.M_local = None
-		self.K_local = None
-		self.T_local = None
-		self.T = None
-		self.P = None
-		self.red2globaldof = None
-		self.global2reddof = None
-	
-	def compute(self,M, K, master_dofs, slave_dofs, no_of_modes=5):
-		''' compute the craig bampton reduction
-		'''
-		pass
+    
+    def __init__(self):
+        super().__init__()
+    
+        self.M_local = None
+        self.K_local = None
+        self.T_local = None
+        self.T = None
+        self.P = None
+        self.red2globaldof = None
+        self.global2reddof = None
+    
+    def compute(self,M, K, master_dofs, slave_dofs, no_of_modes=5):
+        ''' compute the craig bampton reduction
+        Computes the Craig-Bampton basis for the System M and K with the input
+        Matrix b.
+
+        Parameters
+        ----------
+        M : ndarray
+            Mass matrix of the system.
+        K : ndarray
+            Stiffness matrix of the system.
+            master_dofs : ndarray
+            input with dofs of master nodes
+        slave_dofs : ndarray
+            input with dofs of slave nodes
+        no_of_modes : int, optional
+            Number of internal vibration modes for the reduction of the system.
+            Default is 5.
+        one_basis : bool, optional
+            Flag for setting, if one Craig-Bampton basis should be returned or if
+            the static and the dynamic basis is chosen separately
+
+        Returns
+        -------
+        if `one_basis=True` is chosen:
+
+        V : array
+            Basis consisting of static displacement modes and internal vibration
+            modes
+
+        if `one_basis=False` is chosen:
+
+        V_static : ndarray
+            Static displacement modes corresponding to the input vectors b with
+            V_static[:,i] being the corresponding static displacement vector to
+            b[:,i].
+        V_dynamic : ndarray
+            Internal vibration modes with the boundaries fixed.
+        omega : ndarray
+            eigenfrequencies of the internal vibration modes.
+
+        Examples
+        --------
+        TODO
+
+        Notes
+        -----
+        There is a filter-out command to remove the interface eigenvalues of the
+        system.
+
+        References
+        ----------
+        TODO
+
+        '''
+        # boundaries
+        ndof = M.shape[0]       
+        K_tmp = K.copy()
+        
+        K_bb = K_tmp[np.ix_(master_dofs, master_dofs)]
+        K_ii = K_tmp[np.ix_(slave_dofs,  slave_dofs)]
+        K_ib = K_tmp[np.ix_(slave_dofs,  master_dofs)]
+        Phi = splinalg.spsolve(K_ii,K_ib)
+        
+        K_local = self.build_local(K_bb,K_ii,K_ib)
+
+        # inner modes
+        M_tmp = M.copy()
+        # Attention: introducing eigenvalues of magnitude 1 into the system
+        M_bb = M_tmp[np.ix_(master_dofs, master_dofs)]
+        M_ii = M_tmp[np.ix_(slave_dofs,  slave_dofs)]
+        M_ib = M_tmp[np.ix_(slave_dofs,  master_dofs)]
+        
+        M_local = self.build_local(M_bb,M_ii,M_ib)
+
+        num_of_masters = len(master_dofs)
+        num_of_slaves = ndof - num_of_masters
+        
+        if no_of_modes>num_of_slaves:
+            no_of_modes = num_of_slaves-1
+            print('Replacing number of modes to %i' %no_of_modes)
+            
+        omega, V_dynamic = splinalg.eigsh(K_ii, no_of_modes, M_ii)
 
 
 
+
+        I = np.identity(num_of_masters)
+        Zeros = np.zeros( (num_of_masters, no_of_modes))
+
+        T_local_row_1 = np.hstack((I,Zeros))
+        T_local_row_2 = np.hstack((Phi.todense(),V_dynamic))
+        T_local = np.vstack((T_local_row_1,T_local_row_2))
+        
+        local_indexes = []
+        local_indexes.extend(master_dofs)
+        local_indexes.extend(slave_dofs)
+
+        P = sparse.csc_matrix((ndof, ndof), dtype=np.int8)
+        P[local_indexes, np.arange(ndof)] = 1
+
+
+        T = P.dot(T_local)
+        
+
+        #omega = np.sqrt(omega)
+        self.M_local = M_local
+        self.K_local = K_local
+        self.T_local = T_local
+        self.T = T
+        self.P = P
+        
+        return T, T_local, P, K_local, M_local
+
+    def build_local(self,M_bb,M_ii,M_ib):
+        return sparse.vstack((sparse.hstack((M_bb,M_ib.T)), sparse.hstack((M_ib,M_ii)))).tocsc()
+
+    def local2global(self,M,P):
+
+        return P.dot(M).dot(P)
+
+    def check_symmetry(self,M):
+        return M.todense().any() == M.T.todense().any()
+
+    def insert_dirichlet_boundary_cond(self, K=None,M = None, f=None, dir_dof = []):
+        
+            
+        self.dirichlet_dof = []
+        dirichlet_stiffness = 1.0E10
+                
+        for dof in dir_dof:
+            K[dof,:] = 0.0
+            K[:,dof] = 0.0
+            K[dof,dof] = dirichlet_stiffness
+            f[dof] = 0.0
+            
+            if M is not None:
+                M[dof,:] *= 0.0
+                M[:,dof] *= 0.0
+                M[dof,dof] *= 0.0
+            
+            else:
+                print('Dirichlet boundary condition >0 is not yet support!')
+                return None
+                
+        if M is None:
+            return K,f    
+        else:
+            return K,M,f    
 
 
 # This class is not integrated in AMfe yet.
