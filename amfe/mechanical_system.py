@@ -1691,11 +1691,23 @@ class MechanicalAssembly(MechanicalSystem):
         
 
 
-
-
-    
-
-
+class CraigBamptonComponent(MechanicalSystem):
+	
+	def __init__(self):
+        #super().__init__()
+	
+		self.M_local = None
+		self.K_local = None
+		self.T_local = None
+		self.T = None
+		self.P = None
+		self.red2globaldof = None
+		self.global2reddof = None
+	
+	def compute(self,M, K, master_dofs, slave_dofs, no_of_modes=5):
+		''' compute the craig bampton reduction
+		'''
+		pass
 
 
 
