@@ -34,7 +34,8 @@ __all__ = [
     'convert_mechanical_system_to_state_space',
     'reduce_mechanical_system_state_space',
     'MechanicalAssembly',
-    'CraigBamptonComponent'
+    'CraigBamptonComponent',
+    'get_dirichlet_dofs'
 ]
 
 
@@ -1712,7 +1713,9 @@ class CraigBamptonComponent(MechanicalSystem):
         self.P = None
         self.red2globaldof = None
         self.global2reddof = None
-    
+        self.P_cyclic = None # Permutation of cyclic symmetry condition
+        self.num_cyclic_dofs = 0
+        
     def compute(self,M, K, master_dofs, slave_dofs, no_of_modes=5):
         ''' compute the craig bampton reduction
         Computes the Craig-Bampton basis for the System M and K with the input
@@ -1835,35 +1838,183 @@ class CraigBamptonComponent(MechanicalSystem):
         return P.dot(M).dot(P)
 
     def check_symmetry(self,M):
-        return M.todense().any() == M.T.todense().any()
-
-    def insert_dirichlet_boundary_cond(self, K=None,M = None, f=None, dir_dof = []):
+        dif = abs(M - M.T)
+        if dif.max() > 0.0:
+            return False
+        else:
+            return True
+        
+    def insert_dirichlet_boundary_cond(self, K=None, M = None, f=None, dir_dof = [], value = 0.0):
         
             
-        self.dirichlet_dof = []
         dirichlet_stiffness = 1.0E10
-                
+        #dirichlet_stiffness = 1.0
+        dir_force = np.zeros(len(f))    
         for dof in dir_dof:
+            # dir_force = -value*K[:,dof]
             K[dof,:] = 0.0
-            K[:,dof] = 0.0
+            #K[:,dof] *= 0.0
             K[dof,dof] = dirichlet_stiffness
-            f[dof] = 0.0
+            dir_force[dof] = value*dirichlet_stiffness
             
             if M is not None:
                 M[dof,:] *= 0.0
                 M[:,dof] *= 0.0
                 M[dof,dof] *= 0.0
             
-            else:
-                print('Dirichlet boundary condition >0 is not yet support!')
-                return None
+        if abs(value)>0.0:
+            print('Dirichlet boundary with generate a non-symetric Stiffness Matrix')
+        else:
+            # generate a symmetric matrix for zero dirichlet B.C = 0.0
+            for dof in dir_dof:
+                K[:,dof] *= 0.0
+                K[dof,dof] = dirichlet_stiffness
                 
+            
+        f += dir_force
         if M is None:
             return K,f    
         else:
             return K,M,f    
 
+    def create_permutation_matrix(self,local_indexes):
+        ''' create a Permutation matrix based on local id
+        
+        '''
+        ndof = len(local_indexes)
+        P = sparse.csc_matrix((ndof, ndof), dtype=np.int8)
+        P[local_indexes, np.arange(ndof)] = 1
+        return P
+    
+    def get_slice_block_matrix(self,M, row_indexes, col_indexes):
+        ''' future implementation
+        '''
+        pass
+    
+    def insert_cyclic_symm_boundary_cond(self, K=None, M = None, f=None, low_dofs = [], high_dofs = [], theta = 0.0):            
+        ''' This function modify the system operators in order to solve cyclic symmetry problems
+        
+        ''' 
+        if theta > 0.0:
+            eitheta = np.exp(np.complex(0,theta))
+            inv_eitheta = np.exp(-np.complex(0,theta))
+        else:
+            eitheta = 1.0
+            inv_eitheta = 1.0
+        
+        if self.check_symmetry(K):
+            print('Stiffness matrix is not symmetric, the symetric cyclic may not work propertily')
+        
+        if len(low_dofs) != len(high_dofs):
+            raise('Number of low nad high dofs must be the same')
+        
+        ndof,a = K.shape
+        all_dofs_list = list(range(ndof))
+        
+        local_id = []
+        local_id.extend(low_dofs)
+        local_id.extend(high_dofs)
+        interior_dofs = list(set(all_dofs_list).difference(local_id))
+        local_id.extend(interior_dofs)
+        
+        if len(local_id) != ndof:
+            raise('Inconsistency in cyclic symmetry dofs.')
+        
+        P = self.create_permutation_matrix(local_id)
+        
+        n_symmetry = len(low_dofs)
+        n_interior = len(interior_dofs)
+        
+        
+        K_mod = self.assembly_cyclic_matrix(K, low_dofs, high_dofs, interior_dofs , eitheta, inv_eitheta)
+        M_mod = self.assembly_cyclic_matrix(M, low_dofs, high_dofs, interior_dofs , eitheta, inv_eitheta)
+        f_mod = P.dot(f)
+        
+        return K_mod, M_mod, f_mod, P
+    
+    def assembly_cyclic_matrix(self,K, low_dofs, high_dofs, interior_dofs , eitheta, inv_eitheta):
+        ''' assembly cyclic matrices
+        
+        
+        | I               -R                                0         |
+        | 0     (Khh + Kii +R*Khl + R^-1*Klh )      (Khi + R^-1*Kli)  |
+        | 0             (Kih + R*Kil)                       Kii       |  
+        
+        '''
+        n_symmetry = len(low_dofs)
+        n_interior = len(interior_dofs)
+        
+        Kii = K[np.ix_(interior_dofs, interior_dofs)]
+        Khh = K[np.ix_(high_dofs, high_dofs)]
+        Kll = K[np.ix_(low_dofs, low_dofs)]
+        Khi = K[np.ix_(high_dofs, interior_dofs)]
+        Kli = K[np.ix_(low_dofs, interior_dofs)]
+        Khl = K[np.ix_(high_dofs, low_dofs)]
+        
+        I = sparse.csc_matrix((n_symmetry, n_symmetry))
+        I[np.arange(n_symmetry),np.arange(n_symmetry)] = 1.0 
+        
+        R = eitheta*I
+        R_inv = inv_eitheta*I
+        
+        
+        Zeros1 = sparse.csc_matrix((n_symmetry, n_symmetry))
+        Zeros2 = sparse.csc_matrix((n_symmetry,n_interior))
+        
+        K_mod_row_1 = sparse.hstack((I,-R,Zeros2))
+        K_mod_row_2 = sparse.hstack((Zeros1,Khh + Kll + R.dot(Khl) + R_inv.dot(Khl.T), Khi + R_inv.dot(Kli)))
+        K_mod_row_3 = sparse.hstack((Zeros2.T,Khi.T + R.dot(Kli).T,Kii))
+        
+        K_mod = sparse.vstack((K_mod_row_1,K_mod_row_2,K_mod_row_3))
+        
+        return K_mod
+        
+        
 
+def get_dirichlet_dofs(submesh_obj,direction ='xyz',id_matrix=None):
+    ''' get dirichlet dofs given a submesh and a global id_matrix
+    
+    parameters:
+        submesh_obj : amfe.SubMesh
+            submesh object with nodes and element of dirichlet
+        direction : str
+            direction to consirer 'xyz'
+        id_matrix : dict
+            dict maps nodes to DOFs
+            
+    return 
+        dir_dofs : list
+            list with Dirichlet dofs
+    '''
+    
+    x_dir = 0
+    y_dir = 1
+    z_dir = 2
+    
+    dofs_to_keep = []
+    if 'x' in direction:
+        dofs_to_keep.append(x_dir)
+
+    if 'y' in direction:
+        dofs_to_keep.append(y_dir)
+    
+    if 'z' in direction:
+        dofs_to_keep.append(z_dir)
+    
+    dir_nodes = submesh_obj.global_node_list
+    
+    dir_dofs = []
+    for node, dofs in id_matrix.items():
+        if node in dir_nodes:
+            local_dofs = []
+            for i in dofs_to_keep:
+                try:
+                    local_dofs.append(dofs[i])
+                except:
+                    print('It is not possible to issert dof %i as dirichlet dof' %i)
+            dir_dofs.extend(local_dofs)
+    return dir_dofs
+    
 # This class is not integrated in AMfe yet.
 # It should apply linear combinations of external forces
 # f_ext = B(x) * F(t)
