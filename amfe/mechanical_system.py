@@ -1801,8 +1801,6 @@ class CraigBamptonComponent(MechanicalSystem):
         omega, V_dynamic = splinalg.eigsh(K_ii, no_of_modes, M_ii)
 
 
-
-
         I = np.identity(num_of_masters)
         Zeros = np.zeros( (num_of_masters, no_of_modes))
 
@@ -1843,9 +1841,80 @@ class CraigBamptonComponent(MechanicalSystem):
             return False
         else:
             return True
+    
+    def create_mapping_dict(self,global_id, local_id):
+        ''' This function creates 2 dicts to mapping
+        local dofs to global dofs and vice and versa
         
-    def insert_dirichlet_boundary_cond(self, K=None, M = None, f=None, dir_dof = [], value = 0.0):
+        parameters:
+            global_id : list
+                list with global dofs
+            
+            local_id : list
+                list with global dofs
+        return
+            gloal2local: dict
+            local2global: dict
+            
+        '''
+        gloal2local = {}
+        local2global = {}
         
+        for local_i,global_i in zip(local_id,global_id):
+            gloal2local[global_i] = local_i
+            local2global[local_i] = global_i
+        
+        return gloal2local, local2global
+        
+        
+    def get_reduced_ciclic_symm_system(self, K, M, f, num_of_cyclic_dofs):
+        ''' This function gets the reduced system of the global cyclic system operators
+        
+            
+        Global assembly cyclic matrices
+        
+        
+        | I               -R                                0         |
+        | 0     (Khh + Kii +R*Khl + R^-1*Klh )      (Khi + R^-1*Kli)  |
+        | 0             (Kih + R*Kil)                       Kii       |  
+        
+        Reduced assembly cyclic matrices
+        
+        | (Khh + Kii +R*Khl + R^-1*Klh )      (Khi + R^-1*Kli)  |
+        | (Kih + R*Kil)                       Kii       |
+        
+        
+        parameters
+        
+        K : sparse_matrix
+        
+        M : sparse_matrix, 
+        
+        f : np.array
+        
+        num_of_cyclic_dofs : int
+        
+        returns
+        
+        K_red : sparse_matrix
+        
+        M_red : sparse_matrix, 
+        
+        f_red : np.array
+        
+        
+        '''
+        pass
+        
+    def insert_dirichlet_boundary_cond(self, K=None, M = None, f=None, dir_dof = [], value = 0.0, reduced=False):
+        '''
+         This function inserts dirichlet B.C.
+         
+         parameters:
+         
+         
+        
+        '''
             
         dirichlet_stiffness = 1.0E10
         #dirichlet_stiffness = 1.0
@@ -1861,6 +1930,7 @@ class CraigBamptonComponent(MechanicalSystem):
                 M[dof,:] *= 0.0
                 M[:,dof] *= 0.0
                 M[dof,dof] *= 0.0
+                #M[dof,dof] = 1.0
             
         if abs(value)>0.0:
             print('Dirichlet boundary with generate a non-symetric Stiffness Matrix')
@@ -1872,6 +1942,7 @@ class CraigBamptonComponent(MechanicalSystem):
                 
             
         f += dir_force
+        
         if M is None:
             return K,f    
         else:
@@ -1884,13 +1955,106 @@ class CraigBamptonComponent(MechanicalSystem):
         ndof = len(local_indexes)
         P = sparse.csc_matrix((ndof, ndof), dtype=np.int8)
         P[local_indexes, np.arange(ndof)] = 1
-        return P
+        return P.T
     
-    def get_slice_block_matrix(self,M, row_indexes, col_indexes):
-        ''' future implementation
+    def create_selection_operator(self, i_indexes, K, remove = False):
+        ''' This function creates a selection operators for columns and rows
+        and also creates its inverse operator,
+        
+        given a set of row position, a selection operator B will be created 
+        and also its inverse operator.
+        
+        Lets assume that out matrix K after a Permutation P has the format below
+        
+        K = [Kii  Kib
+             Kbi Kbb]
+        
+        Kii is the selected portion of K
+        Deleted_operator = Kbb
+        DiagonalOperator = Kbi = Kib
+        
+        
+        after create B 
+        Kii = S(K) = B * K * B.T = (B * (B * K).T).T
+        K = Sinv(Kii) = Binv *Kii * BinvT
+        
+        also can be seen as
+        Kii = S(K) * B.T
+        K = Binv *Kii * BinvT
+        
+        We also assume that ub can be calculated by ui uisng:
+        ub = (Kbb)^-1(Kbi)(ui)
+        
+        The we also provide the T operator
+         ui = |I        0     | (ui)
+         ub   |0 (Kbb)^-1(Kbi)|
+         
+        
+        
+        parametes
+        
+            i_indexes : list
+                list with values to be keep or removed depending on the variable
+            
+            K : scipy.sparse matrix
+                matrix to be selected
+            
+            remove : Boolean
+                default value = False
+                if false Kii will be select, if true Kbb will be select
+                
+        return 
+            Kii : sparse.matrix
+            S : lambda function
+                Boolen selecton
+            S_inv : lambda function
+                expansiton operator
+            T : lambda function
+                linear operator that maps ui into ub
+        usage
+        >>>  Kii, S, S_inv = obj.create_selection_operator(i_indexes, K)
+        >>>  (Kii - S(K)).max() == 0
+        >>>  (K - S_inv(Kii)).max() == 0
+        
         '''
-        pass
-    
+        
+        ndof , g = K.shape
+        n_i = len(i_indexes)
+        n_b = ndof - n_i
+        all_id = list(range(ndof))
+        b_indexes = list(set(all_id).difference(i_indexes))
+        local_indexes = []
+        local_indexes.extend(i_indexes)
+        local_indexes.extend(b_indexes)
+        
+        if remove:
+            b_indexes, i_indexes = i_indexes, b_indexes
+        
+        P = self.create_permutation_matrix(local_indexes)
+        Kp = (P.dot(K)).dot(P.T).todense()
+        
+        Kii = K[np.ix_(i_indexes, i_indexes)]
+        Kib = K[np.ix_(i_indexes, b_indexes)]
+        Kbb = K[np.ix_(b_indexes, b_indexes)]
+        Kbi = K[np.ix_(b_indexes, i_indexes)]
+        
+        
+        B = sparse.csc_matrix((n_i, ndof), dtype=np.int8)
+        B[i_indexes, np.arange(ndof)] = 1
+
+        #B = sparse.eye(n_i,n_b)
+        #Bp = P.dot(B)
+        
+        S = lambda K : (B.dot(K)).dot(B.T)
+        
+        S_inv = lambda Kii : P.dot(sparse.vstack((sparse.hstack(( Kii , Kib )) , sparse.hstack((Kbi , Kbb))))).dot(P.T)
+        
+        ub = lambda ui : splinalg.spsolve(Kbb,Kbidot(ui))
+        
+        T = lambda ui : P.dot( np.concatenate(ui, ub(ui), axis=-1) ).dot(P.T)
+        
+        return Kii, S, S_inv, T
+            
     def insert_cyclic_symm_boundary_cond(self, K=None, M = None, f=None, low_dofs = [], high_dofs = [], theta = 0.0):            
         ''' This function modify the system operators in order to solve cyclic symmetry problems
         
@@ -1971,22 +2135,22 @@ class CraigBamptonComponent(MechanicalSystem):
         
         
 
-def get_dirichlet_dofs(submesh_obj,direction ='xyz',id_matrix=None):
+def get_dirichlet_dofs(submesh_obj, direction ='xyz', id_matrix=None):
     ''' get dirichlet dofs given a submesh and a global id_matrix
     
-    parameters:
-        submesh_obj : amfe.SubMesh
-            submesh object with nodes and element of dirichlet
-        direction : str
-            direction to consirer 'xyz'
-        id_matrix : dict
-            dict maps nodes to DOFs
+    # parameters:
+        # submesh_obj : amfe.SubMesh
+            # submesh object with nodes and element of dirichlet
+        # direction : str
+            # direction to consirer 'xyz'
+        # id_matrix : dict
+            # dict maps nodes to DOFs
             
-    return 
-        dir_dofs : list
-            list with Dirichlet dofs
+    # return 
+        # dir_dofs : list
+            # list with Dirichlet dofs
     '''
-    
+
     x_dir = 0
     y_dir = 1
     z_dir = 2
@@ -2013,56 +2177,5 @@ def get_dirichlet_dofs(submesh_obj,direction ='xyz',id_matrix=None):
                 except:
                     print('It is not possible to issert dof %i as dirichlet dof' %i)
             dir_dofs.extend(local_dofs)
-    return dir_dofs
     
-# This class is not integrated in AMfe yet.
-# It should apply linear combinations of external forces
-# f_ext = B(x) * F(t)
-# This function is not integrated in the Neumann Boundary conditions.
-#
-# class ExternalForce:
-#     '''
-#     Class for mimicking the external forces based on a force basis and time
-#     values. The force values are linearly interpolated.
-#     '''
-#
-#     def __init__(self, force_basis, force_series, t_series):
-#         '''
-#         Parameters
-#         ----------
-#         force_basis : ndarray, shape(ndim, n_dofs)
-#             force basis for the force series
-#         force_seris : ndarray, shape(n_timesteps, n_dofs)
-#             array containing the force dofs corresponding to the time values
-#             given in t_series
-#         t_series : ndarray, shape(n_timesteps)
-#             array containing the time values
-#
-#         '''
-#         self.force_basis = force_basis
-#         self.force_series= force_series
-#         self.T = t_series
-#         return
-#
-#     def f_ext(self, u, du, t):
-#         '''
-#         Mimicked external force for the given force time series
-#         '''
-#         # Catch the case that t is larger than the data set
-#         if t >= self.T[-1]:
-#             return self.force_basis @ self.force_series[-1]
-#
-#         t2_idx = np.where(self.T > t)[0][0]
-#
-#         # if t is smaller than lowest value of T, pick the first value in the
-#         # force series
-#         if t2_idx == 0:
-#             force_amplitudes = self.force_series[0]
-#         else:
-#             t1_idx = t2_idx - 1
-#             t2 = self.T[t2_idx]
-#             t1 = self.T[t1_idx]
-#
-#             force_amplitudes = ( (t2-t)*self.force_series[t1_idx]
-#                                + (t-t1)*self.force_series[t2_idx]) / (t2-t1)
-#         return self.force_basis @ force_amplitudes
+    return dir_dofs
