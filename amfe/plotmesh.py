@@ -827,20 +827,23 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
             This function do not support multiple type of elements.')
         
         elem_type = elem_list_type[0]
-        connect = mesh_obj.groups[key].get_submesh_connectivity()
-        if elem_type in Tri_D_elem_list:
-            if elem_type=='Tet4':
-                connect = get_triangule_faces_from_tetrahedral(connect)
-                ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
-                legend_handles.append(mpatches.Patch(color=color, label=str(key)))
-            elif elem_type=='Hexa20':
-                connect = get_quad_faces_from_hexa(np.array(connect).T[0:6].T)
-                ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
-                legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+        try:
+            connect = mesh_obj.groups[key].get_submesh_connectivity()
+            if elem_type in Tri_D_elem_list:
+                if elem_type=='Tet4':
+                    connect = get_triangule_faces_from_tetrahedral(connect)
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+                elif elem_type=='Hexa20':
+                    connect = get_quad_faces_from_hexa(np.array(connect).T[0:6].T)
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    legend_handles.append(mpatches.Patch(color=color, label=str(key)))
                 
-            else:
-                raise('Type of element = %s not support by this method.' %elem_type)
-        
+                else:
+                    raise('Type of element = %s not support by this method.' %elem_type)
+        except:
+            print('Element in mesh is not supported.')
+
 
         
     if  boundaries:
@@ -851,7 +854,10 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
             if len(elem_list_type)>1:
                 raise('SubMesh with more than one type of element. \n \
                 This function do not support multiple type of elements.')
-        
+            
+            if not isinstance(elem_list_type[0],str):
+                continue
+
             elem_type = elem_list_type[0]
             connect = mesh_obj.groups[key].get_submesh_connectivity()
 

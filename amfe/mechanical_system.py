@@ -1957,7 +1957,7 @@ class CraigBamptonComponent(MechanicalSystem):
         P[local_indexes, np.arange(ndof)] = 1
         return P.T
     
-    def create_selection_operator(self, i_indexes, K, remove = False):
+    def create_selection_operator(self, i_indexes, K, f=None, remove = False):
         ''' This function creates a selection operators for columns and rows
         and also creates its inverse operator,
         
@@ -1988,6 +1988,21 @@ class CraigBamptonComponent(MechanicalSystem):
         The we also provide the T operator
          ui = |I        0     | (ui)
          ub   |0 (Kbb)^-1(Kbi)|
+
+         Which is the right operator only with the selector operation is applied on system with the folloing form
+         K u = f
+         
+         K =   [Kii   0 
+               Kbi Kbb]
+         
+        u = [ ui
+              ub]
+        
+        f = [fi
+             0]
+        
+        This implies that ui = Kii^(-1)(fi)
+        ub = (Kbb)^-1(Kbi)(ui)
          
         
         
@@ -1998,6 +2013,9 @@ class CraigBamptonComponent(MechanicalSystem):
             
             K : scipy.sparse matrix
                 matrix to be selected
+            
+            f : np.array
+                right hand side of the system Ku = f
             
             remove : Boolean
                 default value = False
@@ -2015,6 +2033,7 @@ class CraigBamptonComponent(MechanicalSystem):
         >>>  Kii, S, S_inv = obj.create_selection_operator(i_indexes, K)
         >>>  (Kii - S(K)).max() == 0
         >>>  (K - S_inv(Kii)).max() == 0
+        >>>   u = T(ui) 
         
         '''
         
@@ -2029,7 +2048,8 @@ class CraigBamptonComponent(MechanicalSystem):
         
         if remove:
             b_indexes, i_indexes = i_indexes, b_indexes
-        
+            n_i, n_b = n_b, n_i
+
         P = self.create_permutation_matrix(local_indexes)
         Kp = (P.dot(K)).dot(P.T).todense()
         
@@ -2038,22 +2058,29 @@ class CraigBamptonComponent(MechanicalSystem):
         Kbb = K[np.ix_(b_indexes, b_indexes)]
         Kbi = K[np.ix_(b_indexes, i_indexes)]
         
-        
         B = sparse.csc_matrix((n_i, ndof), dtype=np.int8)
-        B[i_indexes, np.arange(ndof)] = 1
+        B[np.arange(n_i), i_indexes] = 1
 
-        #B = sparse.eye(n_i,n_b)
-        #Bp = P.dot(B)
-        
         S = lambda K : (B.dot(K)).dot(B.T)
         
-        S_inv = lambda Kii : P.dot(sparse.vstack((sparse.hstack(( Kii , Kib )) , sparse.hstack((Kbi , Kbb))))).dot(P.T)
+        S_inv = lambda Kii : P.T.dot(sparse.vstack((sparse.hstack(( Kii , Kib )) , sparse.hstack((Kbi , Kbb))))).dot(P)
         
-        ub = lambda ui : splinalg.spsolve(Kbb,Kbidot(ui))
         
-        T = lambda ui : P.dot( np.concatenate(ui, ub(ui), axis=-1) ).dot(P.T)
+        if abs(Kib).max() != 0.0:
+            print('Transformation matrix T(ui) is not right, please do not use it!!!')
+
+        #ub = lambda ui : splinalg.spsolve(Kbb,Kbi.dot(ui))
+        #T = lambda ui : P.T.dot( np.concatenate((ui, ub(ui)), axis=-1) )
         
-        return Kii, S, S_inv, T
+        
+        map_obj = MapInt2Global(Kbb, Kbi, P.T)
+        T = map_obj.build_map_function()
+        
+        if f is None:
+            return Kii, S, S_inv, T
+        else:
+            print('returning reduced right side, please umpack 5 elementes')
+            return Kii, S, S_inv, T, f[i_indexes]
             
     def insert_cyclic_symm_boundary_cond(self, K=None, M = None, f=None, low_dofs = [], high_dofs = [], theta = 0.0):            
         ''' This function modify the system operators in order to solve cyclic symmetry problems
@@ -2133,8 +2160,47 @@ class CraigBamptonComponent(MechanicalSystem):
         
         return K_mod
         
+  
+class MapInt2Global():
+    '''
+        We also assume that ub can be calculated by ui uisng:
+        ub = (Kbb)^-1(Kbi)(ui)
         
+        The we also provide the T operator
+         ui = |I        0     | (ui)
+         ub   |0 (Kbb)^-1(Kbi)|
 
+         Which is the right operator only with the selector operation is applied on system with the folloing form
+         K u = f
+         
+         K =   [Kii   0 
+               Kbi Kbb]
+         
+        u = [ ui
+              ub]
+        
+        f = [fi
+             0]
+        
+        This implies that ui = Kii^(-1)(fi)
+        ub = (Kbb)^-1(Kbi)(ui)
+    '''
+    def __init__(self,Kbb, Kbi, P):
+        self.P = P
+        self.Kbi = Kbi
+        self.Kbb = Kbb
+    
+    def build_map_function(self):
+        
+        P = self.P
+        Kbi = self.Kbi
+        Kbb = self.Kbb 
+        
+        ub = lambda ui : splinalg.spsolve(Kbb,Kbi.dot(ui))        
+        T = lambda ui : P.dot(np.concatenate((ub(ui), ui), axis=-1))  
+        return T
+    
+    
 def get_dirichlet_dofs(submesh_obj, direction ='xyz', id_matrix=None):
     ''' get dirichlet dofs given a submesh and a global id_matrix
     

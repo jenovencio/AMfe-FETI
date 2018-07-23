@@ -1,4 +1,4 @@
-# Copyright (c) 2017, Lehrstuhl fuer Angewandte Mechanik, Technische
+0# Copyright (c) 2017, Lehrstuhl fuer Angewandte Mechanik, Technische
 # Universitaet Muenchen.
 #
 # Distributed under BSD-3-Clause License. See LICENSE-File for more information
@@ -14,7 +14,7 @@ __all__ = ['Mesh',
 
 import os
 import copy
-
+from .wrappers.read_abaqus_mesh import read_inp, create_amfe_elem_data_frame, create_amfe_node_array
 
 # XML stuff
 from xml.etree.ElementTree import Element, SubElement
@@ -452,6 +452,10 @@ class Mesh:
         self.el_df = pd.DataFrame()
         self.node_idx = 0
         
+        # elements and node sets
+        self.elem_sets_dict = {}
+        self.node_sets_dict = {}
+        
         # Element Class dictionary with all available elements
         # This dictionary is only needed for load_group_to_mesh()-method
         kwargs = { }
@@ -614,125 +618,29 @@ class Mesh:
 
         print('*************************************************************')
         print('\nLoading Abaqus-mesh from', filename)
-        nodes_list = []
-        elements_list = []
-        surface_list = []
-        buf = []  # buffer for handling line continuations
-
-        current_scope = None
-        current_type = None
-        current_name = None
-
-        #################
-        with open(filename, 'r') as infile:
-            file_data = infile.read().splitlines()
-
-        # Loop over all lines in the file
-        for line in file_data:
-            s = [x.strip() for x in line.split(',')]
-
-            # Filter out comments
-            if '**' in s[0]:
-                continue
-
-            elif s[0] == '*NODE':  # Nodes are coming
-                current_scope = 'node'
-                print('A node tag has been found:')
-                print(s)
-                continue
-
-            elif s[0] == '*ELEMENT':
-                current_scope = 'element'
-                print('An elment tag has been found:')
-                print(s)
-                current_type = [a[5:] for a in s if a.startswith('TYPE=')][0]
-                current_name = [a[6:] for a in s if a.startswith('ELSET=')][0]
-                continue
-
-            elif s[0] == '*SURFACE':
-                current_scope = 'surface'
-                print('A surface tag has been found:')
-                print(s)
-                current_type = [a[5:] for a in s if a.startswith('TYPE=')][0]
-                current_name = [a[5:] for a in s if a.startswith('NAME=')][0]
-                continue
-
-            elif s[0].startswith('*'):
-                current_scope = None
-                continue
-
-            elif current_scope == 'node':
-                if s[-1].strip() == '':  # line has comma at its end
-                    buf.extend(s[:-1])
-                    continue
-                else:
-                    nodes_list.append(buf + s)
-                    buf = []
-
-            elif current_scope == 'element':
-                s = line.split(',')
-                if s[-1].strip() == '':  # line has comma at its end
-                    buf.extend(s[:-1])
-                    continue
-                else:
-                    elements_list.append([current_type, current_name] + buf + s)
-                    buf = []
-
-            elif current_scope == 'surface':
-                s = line.split(',')
-                if s[-1].strip() == '':  # line has comma at its end
-                    buf.extend(s[:-1])
-                    continue
-                else:
-                    surface_list.append([current_type, current_name] + buf + s)
-                    buf = []
+    
+        nodes_dict, elem_list, nset_list, elset_list  = read_inp(filename)
+        el_df, node_idx = create_amfe_elem_data_frame(elem_list)
+        nodes = create_amfe_node_array(nodes_dict)
+        
+        
+        for rows in nset_list:
+            self.node_sets_dict[rows['node_set']] = rows['node_list']
 
 
-        self.no_of_dofs_per_node = 3 # this is just hard coded right now...
-        nodes_arr = np.array(nodes_list, dtype=float)
-        self.nodes = nodes_arr[:,1:] * scale_factor
+        
+        for rows in elset_list:
+            self.self.elem_sets_dict[rows['elem_set']] = rows['elem_dict']
 
-        nodes_dict = pd.Series(index=np.array(nodes_arr[:,0], dtype=int),
-                               data=np.arange(nodes_arr.shape[0]))
 
-        for idx, ptr in enumerate(elements_list):
-            # pop the first two elements as they are information
-            tmp = [abaq2amfe[ptr.pop(0).strip()], ptr.pop(0), ptr.pop(0),]
-            tmp.extend([nodes_dict[int(i)] for i in ptr])
-            elements_list[idx] = tmp
-        self.el_df = df = pd.DataFrame(elements_list, dtype=int)
-        df.rename(copy=False, inplace=True,
-                  columns={0 : 'el_type',
-                           1 : 'phys_group',
-                           2 : 'idx_abaqus',
-                          })
-        self.node_idx = 3
-
-        ele_dict = pd.Series(index=df['idx_abaqus'].values,
-                             data=np.arange(df['idx_abaqus'].values.shape[0]))
-
-        # This is a little dirty but works: Add the surfaces to the
-        # element dataframe self.el_df
-        for row in surface_list:
-            if row[0] == 'ELEMENT':
-                ele_idx = ele_dict[int(row[2])]
-                element = df.iloc[ele_idx, :].values
-                face_dict = abaq_faces[element[0]]
-                ele_name, node_indices = face_dict[row[3].strip()]
-                nodes = element[self.node_idx:][node_indices]
-                elements_list.append([ele_name, row[1], None]
-                                     + nodes.tolist())
-            if row[0] == 'NODE':
-                nodes = nodes_dict[int(row[2])]
-                elements_list.append(['point', row[1], None, nodes])
-
-        self.el_df = df = pd.DataFrame(elements_list, dtype=int)
-        df.rename(copy=False, inplace=True,
-                  columns={0 : 'el_type',
-                           1 : 'phys_group',
-                           2 : 'idx_abaqus',
-                          })
-
+        self.el_df = el_df
+        self.node_idx = node_idx
+        self.nodes = nodes
+        
+        print('WARNING 3D case were selected')
+        self.no_of_dofs_per_node = 3
+        
+        
         self._update_mesh_props()
         # printing some information regarding the physical groups
         print('Mesh', filename, 'successfully imported.',
