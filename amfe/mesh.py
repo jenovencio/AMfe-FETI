@@ -635,7 +635,7 @@ class Mesh:
 
         self.el_df = el_df
         self.node_idx = node_idx
-        self.nodes = nodes
+        self.nodes = nodes*scale_factor
         
         print('WARNING 3D case were selected')
         self.no_of_dofs_per_node = 3
@@ -1902,6 +1902,7 @@ class SubMesh():
         self.elem_dataframe = elem_dataframe
         self.partitions = {}
         self.__material__ = None
+        self.elements_dict = {}
         #self.subset_list()
         
         self.interface_elements_dict = {}
@@ -1918,7 +1919,32 @@ class SubMesh():
         self.global_node_list = []
         self.create_node_list()
         self.problem_type = 2  # self.problem_type = 2 -> 2D problem / self.problem_type = 3 -> 3D problem; 
+    
+    def create_elem_dict(self):
+        ''' create a list with element number as key
+        and node list as values
+        '''
+        node_idx = self.parent_mesh.node_idx
+        for index, row in self.elem_dataframe.iterrows():
+            self.elements_dict[index] = list(row.iloc[node_idx:].astype(int))
         
+        return self.elements_dict
+    
+    def get_element(self,elem_id):
+        ''' Get the nodes assossiate with elem_id
+
+        parameters
+            elem_id : int
+                element id
+        return
+            list of nodes assossiated with element
+        '''
+        if not self.elements_dict:
+            self.create_elem_dict()
+
+        return self.elements_dict[elem_id]
+
+
     def set_material(self,material):
         self.__material__ = material
         

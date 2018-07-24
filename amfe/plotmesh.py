@@ -810,14 +810,14 @@ def plot_superdomain(superdomain_obj, factor = 1, ax = None):
           
     return ax
 
-def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_nodes=True):
+def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_nodes=True, scale = 1.0, Label = False):
 
     legend_handles = []
     if ax==None:
         ax = a3.Axes3D(plt.figure()) 
     
     mesh_obj.split_in_groups()
-    nodes = mesh_obj.nodes
+    nodes = mesh_obj.nodes*scale
     for key in mesh_obj.groups:
         submesh = mesh_obj.groups[key]
         elem_list_type = submesh.get_element_type_list()
@@ -835,7 +835,7 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                     ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
                     legend_handles.append(mpatches.Patch(color=color, label=str(key)))
                 elif elem_type=='Hexa20':
-                    connect = get_quad_faces_from_hexa(np.array(connect).T[0:6].T)
+                    connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
                     ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
                     legend_handles.append(mpatches.Patch(color=color, label=str(key)))
                 
@@ -878,8 +878,8 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                                 [x_max,y_max,z_max]])
 
             ax.plot(points[:,0], points[:,1], points[:,2], 'ko')
-    
-    ax.legend(handles= legend_handles,fontsize=30)
+    if Label:
+        ax.legend(handles= legend_handles,fontsize=30)
     return ax
         
 
@@ -1016,7 +1016,6 @@ def get_triangule_faces_from_tetrahedral(tetrahedron_list,surface_only=True):
 
     return tri_list
 
-
 def get_quad_faces_from_hexa(hexa_list,surface_only=True):
     ''' Create a list of 2D faces based on the index of 
     of a 3D Hexa
@@ -1035,17 +1034,32 @@ def get_quad_faces_from_hexa(hexa_list,surface_only=True):
     '''
 
     quad =[]
+    
+
+    #All_square = itertools.combinations([0,1,2,3,4,5,6,7], 4)
+    All_square = [[0,1,2,3],
+                  [0,1,3,4],
+                  [1,2,6,5],
+                  [4,5,6,7],
+                  [2,6,7,3],
+                  [0,3,7,4]]
+
     for Hex in hexa_list:
-        for i,j,k,h in itertools.combinations([0,1,2,3,4,5], 4):
-            quad.append([Hex[i],Hex[j],Hex[k],Hex[h]])
+        for i,j,k,h in All_square:
+            quad_face = [Hex[i],Hex[j],Hex[k],Hex[h]]
+            quad.append(quad_face)
     
     unique_quad_list = list(np.unique(quad,axis=0))
-
+    quad_ordered_list =[]
+    
     if surface_only:
         surface_quad = []
-        for unique_quad in unique_quad_list:
-            num_of_occurances = quad.count(unique_quad.tolist())
-            if num_of_occurances==1:
+        for unique_quad in  unique_quad_list:
+            quad_ordered = list(np.sort(unique_quad))
+            if quad_ordered in quad_ordered_list:
+                continue
+            else:
+                quad_ordered_list.append(quad_ordered)
                 surface_quad.append(unique_quad)
         quad_list = surface_quad        
     else:

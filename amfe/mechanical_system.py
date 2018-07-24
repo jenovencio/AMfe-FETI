@@ -2082,7 +2082,7 @@ class CraigBamptonComponent(MechanicalSystem):
             print('returning reduced right side, please umpack 5 elementes')
             return Kii, S, S_inv, T, f[i_indexes]
             
-    def insert_cyclic_symm_boundary_cond(self, K=None, M = None, f=None, low_dofs = [], high_dofs = [], theta = 0.0):            
+    def insert_cyclic_symm_boundary_cond(self, K=None, M = None, f=None, low_dofs = [], high_dofs = [], theta = 0.0, ordered = False):            
         ''' This function modify the system operators in order to solve cyclic symmetry problems
         
         ''' 
@@ -2121,7 +2121,15 @@ class CraigBamptonComponent(MechanicalSystem):
         M_mod = self.assembly_cyclic_matrix(M, low_dofs, high_dofs, interior_dofs , eitheta, inv_eitheta)
         f_mod = P.dot(f)
         
-        return K_mod, M_mod, f_mod, P
+        if ordered: 
+            # return max matrix ordered with dofs [u_low, u_high, u_internal]
+            print('The K, M and f are permutated, please make sure you are applying operatorion to the right dofs')
+            return K_mod, M_mod, f_mod, P
+        else:
+            print('The K, M and f are ordered according its original dofs order')
+            M_original = P.T.dot((M_mod)).dot(P)
+            K_original = P.T.dot((K_mod)).dot(P)
+            return K_original, M_original, f
     
     def assembly_cyclic_matrix(self,K, low_dofs, high_dofs, interior_dofs , eitheta, inv_eitheta):
         ''' assembly cyclic matrices
