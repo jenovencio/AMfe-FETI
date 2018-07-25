@@ -839,6 +839,11 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                     ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
                     legend_handles.append(mpatches.Patch(color=color, label=str(key)))
                 
+                elif elem_type=='Hexa8':
+                    connect = get_quad_faces_from_hexa(np.array(connect))
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+                
                 else:
                     raise('Type of element = %s not support by this method.' %elem_type)
         except:
