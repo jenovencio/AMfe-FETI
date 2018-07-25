@@ -200,14 +200,14 @@ def parse_elem_list(list_with_strings):
     local_dict = {}
     continuation_line = False
     for line in list_with_strings[1:]:
-        values = line[0].split(',')  
+        values = line[0].replace('\n','').split(',')  
         try:
             if not continuation_line:
                 elem_key  = int(values[0])
-                node_list = [int(i) for i in values[1:-1]]              
+                node_list = [int(i) for i in values[1:]]              
                 local_dict[elem_key] = node_list
             
-                if line[0][-2] == ',':
+                if line[0][-1] == ',':
                     # Next line will be a continuation
                     continuation_line = True
             else:  

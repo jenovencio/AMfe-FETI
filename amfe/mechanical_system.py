@@ -1715,8 +1715,9 @@ class CraigBamptonComponent(MechanicalSystem):
         self.global2reddof = None
         self.P_cyclic = None # Permutation of cyclic symmetry condition
         self.num_cyclic_dofs = 0
+        self.Guyan = None
         
-    def compute(self,M, K, master_dofs, slave_dofs, no_of_modes=5):
+    def compute_Craig_Bampton_Red(self,M, K, master_dofs, slave_dofs, no_of_modes=5):
         ''' compute the craig bampton reduction
         Computes the Craig-Bampton basis for the System M and K with the input
         Matrix b.
@@ -1827,6 +1828,37 @@ class CraigBamptonComponent(MechanicalSystem):
         self.P = P
         
         return T, T_local, P, K_local, M_local
+    
+    def compute_cyclic_Craig_Bampton_Red(self, M, K, master_dofs, low_dofs, high_dofs, num_of_sector, no_of_modes=6, harm_index=0):
+        ''' Performs a Craig-Bampton reduction with cyclic symetric B.C.
+        then a harmonic must be selected
+        
+        
+        ''' 
+        alpha = 2.0*np.pi/num_of_sector
+        
+        dir_dofs = master_dofs
+        ndof, garbage = K.shape
+        f = np.zeros(ndof)
+
+        K_mod, M_mod, f_mod = self.insert_cyclic_symm_boundary_cond(K, M, f, low_dofs = low_dofs , high_dofs = high_dofs , theta =  harm_index*alpha)    
+        Kii, S, S_inv, T, fi = self.create_selection_operator(dir_dofs, K_mod, f_mod, remove = True, Guyan=True)
+        Mii, Sm, Sm_inv, Tm = self.create_selection_operator(dir_dofs, M_mod, remove = True)
+        
+        # computes the modes
+        omega, V_dynamic = splinalg.eigs(Kii, k=no_of_modes, M = Mii, which='SM')
+        V_dynamic = np.real(V_dynamic)
+        
+        # backing to Augmented System
+        aug_mode_shapes = []
+        for i in range(no_of_modes):
+            u_global = T(V_dynamic [:,i])
+            aug_mode_shapes.append(list(u_global))
+
+        aug_mode_shapes = np.array(aug_mode_shapes).T
+        
+        Tcg = sparse.hstack((self.Guyan, sparse.csr_matrix(aug_mode_shapes))).tocsc()
+        return Tcg
 
     def build_local(self,M_bb,M_ii,M_ib):
         return sparse.vstack((sparse.hstack((M_bb,M_ib.T)), sparse.hstack((M_ib,M_ii)))).tocsc()
@@ -1957,7 +1989,7 @@ class CraigBamptonComponent(MechanicalSystem):
         P[local_indexes, np.arange(ndof)] = 1
         return P.T
     
-    def create_selection_operator(self, i_indexes, K, f=None, remove = False):
+    def create_selection_operator(self, i_indexes, K, f=None, remove = False, Guyan = False):
         ''' This function creates a selection operators for columns and rows
         and also creates its inverse operator,
         
@@ -2075,6 +2107,12 @@ class CraigBamptonComponent(MechanicalSystem):
         
         map_obj = MapInt2Global(Kbb, Kbi, P.T)
         T = map_obj.build_map_function()
+        
+        if Guyan:
+            print('Creating Guyan matrix and storing in self.Guyan.')
+            I = sparse.eye(n_b)
+            G = splinalg.inv(Kii.tocsc()).dot(Kib)    
+            self.Guyan =  P.T.dot(sparse.vstack((I,G)))
         
         if f is None:
             return Kii, S, S_inv, T
