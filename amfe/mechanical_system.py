@@ -1833,7 +1833,55 @@ class CraigBamptonComponent(MechanicalSystem):
         ''' Performs a Craig-Bampton reduction with cyclic symetric B.C.
         then a harmonic must be selected
         
-        
+        this method creates some object variables:
+
+                
+        self.local2global_master : dict
+            maps local master dofs to global master dofs
+
+        self.global2local_master : dict
+            maps global master dofs to local master dofs
+
+        self.amplitutes_dofs : list
+            list with the position of the amplitudes of the modes of the Craig-Bampton Reduction
+
+        self.aug_mode_shapes : np.array
+            array with the modes of Craig-Bampton Reduction
+
+        paramenters
+        M : sparse.matrix
+            sparse mass matrix
+        K : sparse.matrix
+            sparse stiffness matrix
+        master_dofs : list
+            list of master dofs
+        low_dofs : list
+            list of low dofs for cyclic symmetry
+        high_dofs : list
+            list of high dofs for cyclic symmetry
+        num_of_sector : int
+            number of sector for cyclic symmetry
+        no_of_modes : int
+            number of modes for the Craig-Bampton Reduction
+        harm_index : int
+            number of the harmonic index for the cyclic reduction    
+
+        return 
+            Tcg : n.array
+                the Craig-Bampton transformation matrix
+
+                [ I   0 ]
+                [ G  phi]
+
+            Where G is the Guyer transformation matrix 
+            and phi are the fixed interface modes
+
+            Tcg_inv : n.array
+                the inverse Craig-Bampton transformation matrix which transforme the reduced set of
+                variables in the global one
+
+                [ I   0 ]
+                [ 0  phi]
         ''' 
         alpha = 2.0*np.pi/num_of_sector
         
@@ -1841,24 +1889,42 @@ class CraigBamptonComponent(MechanicalSystem):
         ndof, garbage = K.shape
         f = np.zeros(ndof)
 
+        K, M, f = self.insert_dirichlet_boundary_cond(K,M,f,dir_dofs)
         K_mod, M_mod, f_mod = self.insert_cyclic_symm_boundary_cond(K, M, f, low_dofs = low_dofs , high_dofs = high_dofs , theta =  harm_index*alpha)    
         Kii, S, S_inv, T, fi = self.create_selection_operator(dir_dofs, K_mod, f_mod, remove = True, Guyan=True)
         Mii, Sm, Sm_inv, Tm = self.create_selection_operator(dir_dofs, M_mod, remove = True)
         
         # computes the modes
         omega, V_dynamic = splinalg.eigs(Kii, k=no_of_modes, M = Mii, which='SM')
-        V_dynamic = np.real(V_dynamic)
+        #V_dynamic = np.real(V_dynamic)
         
         # backing to Augmented System
         aug_mode_shapes = []
         for i in range(no_of_modes):
             u_global = T(V_dynamic [:,i])
+            if np.real(u_global)[master_dofs].max() > 0.0:
+                raise('Error in Craig Bampton reduction. Check the order of dofs.')
             aug_mode_shapes.append(list(u_global))
 
         aug_mode_shapes = np.array(aug_mode_shapes).T
         
+        num_master_dofs = len(dir_dofs)
+        self.local_master_dofs = np.arange(num_master_dofs)
+
+        # createing dict to mapping local dofs to global dofs
+        self.local2global_master = dict(zip(self.local_master_dofs, master_dofs))
+        self.global2local_master = dict(zip(master_dofs,self.local_master_dofs))
+
+        # points to the location where the amplititutes dofs are in the local dof vector
+        self.amplitutes_dofs = np.arange(num_master_dofs,num_master_dofs+no_of_modes)
+
+        # store the modes in the 
+        self.aug_mode_shapes = aug_mode_shapes
+        
+        Tcg_inv = sparse.hstack((self.Guyan_identity, sparse.csr_matrix(aug_mode_shapes))).tocsc()
+
         Tcg = sparse.hstack((self.Guyan, sparse.csr_matrix(aug_mode_shapes))).tocsc()
-        return Tcg
+        return Tcg, Tcg_inv
 
     def build_local(self,M_bb,M_ii,M_ib):
         return sparse.vstack((sparse.hstack((M_bb,M_ib.T)), sparse.hstack((M_ib,M_ii)))).tocsc()
@@ -2113,6 +2179,7 @@ class CraigBamptonComponent(MechanicalSystem):
             I = sparse.eye(n_b)
             G = splinalg.inv(Kii.tocsc()).dot(Kib)    
             self.Guyan =  P.T.dot(sparse.vstack((I,G)))
+            self.Guyan_identity =  P.T.dot(sparse.vstack((I,0.0*G)))
         
         if f is None:
             return Kii, S, S_inv, T
@@ -2205,7 +2272,30 @@ class CraigBamptonComponent(MechanicalSystem):
         K_mod = sparse.vstack((K_mod_row_1,K_mod_row_2,K_mod_row_3))
         
         return K_mod
-        
+
+    def create_inv_id_matrix(self,id_matrix=None):
+        ''' Given a ID matrix which points a node to dofs
+        find the the inverse operator given the global dof
+        find the node and the direction
+
+        parameters:
+            id_matrix : dict
+
+        return inv_id_matrix : dict
+            points dofs to nodes and direction x = 0, y = 1, z = 2
+
+
+        '''
+        if id_matrix is None:
+           id_matrix = self.assembly_class.id_matrix
+
+        inv_id_matrix = {}
+        for key, dof_list in id_matrix.items():
+            for j,dof in enumerate(dof_list):
+                inv_id_matrix[dof] = {'node':key,'direction':j}
+    
+        self.inv_id_matrix = inv_id_matrix
+        return self.inv_id_matrix
   
 class MapInt2Global():
     '''
@@ -2291,3 +2381,4 @@ def get_dirichlet_dofs(submesh_obj, direction ='xyz', id_matrix=None):
             dir_dofs.extend(local_dofs)
     
     return dir_dofs
+
