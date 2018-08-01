@@ -1838,9 +1838,8 @@ class Mesh:
             ref_point_vector: np.array
                 np.array with the vectors of a coordinate system [e1,e2,e3]
         
-    '''
+        '''
     
-
         coord = self.nodes
         num_nodes, dim = coord.shape
         if unit=='deg':
@@ -1926,7 +1925,7 @@ class SubMesh():
         '''
         node_idx = self.parent_mesh.node_idx
         for index, row in self.elem_dataframe.iterrows():
-            self.elements_dict[index] = list(row.iloc[node_idx:].astype(int))
+            self.elements_dict[index] = list(row.iloc[node_idx:].dropna().astype(int))
         
         return self.elements_dict
     
