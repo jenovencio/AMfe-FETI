@@ -79,6 +79,8 @@ element_mapping_list = [
     ['quadratic_line', 'Edge_3',  8, 21,  3,
      'Quadratic edge/line composed of 3 nodes'],
     ['point',       '', 15, np.NAN,  1, 'Single Point'],
+    ['Quad4Boundary',         'Quadrilateral',   3,  9,  4,
+     'Bilinear rectangle / 4 node first order rectangle'],
     # Bars are missing, which are used for simple benfield truss
 ]
 
@@ -1902,6 +1904,7 @@ class SubMesh():
         self.partitions = {}
         self.__material__ = None
         self.elements_dict = {}
+        self.elem_connect_to_node_dict = {}
         #self.subset_list()
         
         self.interface_elements_dict = {}
@@ -2115,7 +2118,6 @@ class SubMesh():
         
         return self.global_node_list
                 
-        
     def __inherit_neumann_nodes__(self,parent_neumann_submesh):
         
         for parent_obj in parent_neumann_submesh:
@@ -2131,8 +2133,7 @@ class SubMesh():
                 if node in self.global_node_list:
                     self.dirichlet_submesh.append(parent_obj)
                     break        
-
-        
+    
     def split_in_partitions(self, group_type = 'partition_id'):
         
         Mesh.split_in_groups(self,group_type, self.parent_mesh, self.elem_dataframe)
@@ -2271,8 +2272,7 @@ class SubMesh():
         node_idx = self.parent_mesh.node_idx
         elements_df = self.elem_dataframe
         for index, ele in elements_df.iterrows():
-            no_of_nodes = amfe2no_of_nodes[ele.el_type]
-            connectivity.append(list(ele[node_idx:].astype(int)))
+            connectivity.append(list(ele[node_idx:].dropna().astype(int)))
 
         return connectivity
 
@@ -2285,6 +2285,26 @@ class SubMesh():
         '''
         return list(set(self.elem_dataframe.el_type))
 
+    def rot_z(self ,alpha, unit='deg', ref_point_vector = np.array([0.0,0.0,0.0])):
+        ''' This function rotate a set of nodes based on the rotation angule alpha
+        and a reference coordinate system. In the SubMesh Class this rotation is done 
+        in the parent_mesh object
+    
+        arguments:
+            
+            alpha: float
+                angule to apply rotation in z axis
+            
+            unit: str
+                unit type of alpha, internally alpha must be in rad
+            
+            ref_point_vector: np.array
+                np.array with the vectors of a coordinate system [e1,e2,e3]
+        '''
+       
+        new_mesh = self.parent_mesh.rot_z(alpha, unit, ref_point_vector)
+        self.parent_mesh = new_mesh
+        return  None
         
 class Submesh_Boundary():
     
