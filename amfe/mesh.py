@@ -1926,7 +1926,7 @@ class SubMesh():
         '''
         node_idx = self.parent_mesh.node_idx
         for index, row in self.elem_dataframe.iterrows():
-            self.elements_dict[index] = list(row.iloc[node_idx:].astype(int))
+            self.elements_dict[index] = list(row.iloc[node_idx:].dropna().astype(int))
         
         return self.elements_dict
     
@@ -1941,8 +1941,12 @@ class SubMesh():
         '''
         if not self.elements_dict:
             self.create_elem_dict()
-
-        return self.elements_dict[elem_id]
+        
+        if elem_id in self.elements_dict:
+            return self.elements_dict[elem_id]
+        else:
+            print('Element number does not belong to the Submesh, please select another element number')
+            return None
 
 
     def set_material(self,material):
