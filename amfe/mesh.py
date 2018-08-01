@@ -1948,7 +1948,125 @@ class SubMesh():
             print('Element number does not belong to the Submesh, please select another element number')
             return None
 
-
+    def get_node_coord(self, node_id):
+        ''' get the coordinates given a node_id
+        
+        paramenters
+            node_id: int
+                node identifier
+        return 
+            node_coord : np.array
+        '''
+        node_coord = self.parent_mesh.nodes[node_id]
+        return node_coord
+    
+    def get_elem_coord(self, elem_id):
+        ''' get the coordinates given a elem_id
+        
+        paramenters
+            elem_id: int
+                element identifier
+        return 
+            elem_coord : np.array
+        '''
+        node_list = self.get_element(elem_id)
+        elem_coord = []
+        for node_id in node_list:
+            elem_coord.append(list(self.get_node_coord(node_id)))
+        
+        return np.array(elem_coord)
+    
+    def get_normal_to_element(self, elem_id, orientation = 1.0):
+        ''' get the normal vector given a elem_id
+        
+        paramenters
+            elem_id: int
+                element identifier
+            orientation : float
+                change the orientation of the normal vector either 1.0 or -1.0
+            
+        return 
+            normal_vector : np.array
+        '''
+        coord = self.get_elem_coord(elem_id)
+        vector1 = coord[1] - coord[0]
+        vector2 = coord[2] - coord[0]
+        normal_vec  = np.cross(vector1, vector2)
+        unit_normal_vec = normal_vec/np.linalg.norm(normal_vec)
+        return orientation*unit_normal_vec
+    
+    def create_elem_connect_to_node(self):
+        ''' This function creates a dict
+        with nodes as keys which points to elements connected 
+        to the node
+        
+        return self.elem_connect_to_node_dict
+        '''
+        
+        self.elem_connect_to_node_dict = {}
+        
+        if not self.elements_dict:
+            self.create_elem_dict()
+        
+        for elem_id, node_list in self.elements_dict.items():
+            for node_id in node_list:
+                if node_id in self.elem_connect_to_node_dict:
+                    self.elem_connect_to_node_dict[node_id].append(elem_id)
+                else:
+                    self.elem_connect_to_node_dict[node_id] = [elem_id]
+        
+        return self.elem_connect_to_node_dict
+    
+    def get_normal_to_node(self, node_id, method = 'average' , orientation = 1.0):
+        ''' Get the normal to a node. Since there is no unique way to define the
+        normal to a node, two methods are available:
+        
+        methods:
+            first :
+                compute the normal of the first element assossiated with the node
+            
+            average :
+                compute the normal of all the elements associated with the node
+                and the compute the average normal vector
+        
+        paramentes:
+            node_id: int
+                element identifier
+            
+            method : str
+                string with 'first' or 'average'. Default value is 'average'
+            
+            orientation : float
+                change the orientation of the normal vector either 1.0 or -1.0
+        
+        return
+            normal_vec : np.array
+        '''
+        if not self.elem_connect_to_node_dict:
+            self.create_elem_connect_to_node()
+        
+        elem_list = self.elem_connect_to_node_dict[node_id]
+        
+        
+        if method == 'average':
+            pass
+        
+        elif method == 'first':
+            elem_list = [elem_list[0]]
+        
+        else:
+            print('Methods is nor implemented. Select either "first" or "average"')
+            
+        normal_vec = np.zeros(3)
+        div = 0.0
+        for elem_id in elem_list:
+            normal_vec += self.get_normal_to_element(elem_id,orientation)
+            div += 1.0
+        
+        normal_vec = normal_vec/div
+        unit_normal_vec = normal_vec/np.linalg.norm(normal_vec)
+        return unit_normal_vec
+    
     def set_material(self,material):
         self.__material__ = material
         
