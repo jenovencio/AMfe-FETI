@@ -2155,8 +2155,7 @@ class SubMesh():
         elements_df = self.elem_dataframe
         for index, ele in elements_df.iterrows():
             no_of_nodes = amfe2no_of_nodes[ele.el_type]
-            connectivity.append(list(ele[node_idx :
-                                    node_idx + no_of_nodes].astype(int)))
+            connectivity.append(list(ele[node_idx:].astype(int)))
 
         return connectivity
 
