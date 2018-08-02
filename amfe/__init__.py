@@ -25,7 +25,7 @@ from .mechanical_system import *
 from .mesh import *
 from .solver import *
 from .tools import *
-from contact import *
+from .contact import *
 # Linalg submodule
 from .linalg import *
 

@@ -4,17 +4,22 @@
 # Distributed under BSD-3-Clause License. See LICENSE-File for more information
 #
 
-class Contact_Elem():
+import numpy as np
+import copy
+
+class Contact():
     ''' This is a class to hanble contact element
     '''
     def __init__(self, master_submesh, slave_submesh, type = 'node2node', tol_radius = 1e-6):
         
+        self.master_submesh = master_submesh
+        self.slave_submesh =  slave_submesh
         self.contact_elem_dict = {}
         self.master_normal_dict = {}
         
-        if type = 'node2node':
-            self.find_node_pairs(self, master_submesh,slave_submesh, tol_radius)
-            self.find_master_normal()
+        if type == 'node2node':
+            self.find_node_pairs(master_submesh,slave_submesh, tol_radius)
+            self. create_master_normal_dict()
         else:
             print('Type of contact not implemented')
             return None
@@ -45,10 +50,10 @@ class Contact_Elem():
         # master points to slave # master is a key and slave is value
         contact_elem_dict = {}
         for master_node in master_nodes:
-            master_coord = cyclic_top_low.get_node_coord( master_node)
+            master_coord = master_submesh.get_node_coord( master_node)
             min_dist = 1E8
             for slave_node in slaves_nodes:
-                slave_coord = virtual_cyclic_top_high.get_node_coord(slave_node)
+                slave_coord = slave_submesh.get_node_coord(slave_node)
                 dist = np.linalg.norm(master_coord - slave_coord)
                 if dist<min_dist:
                     slave_pair = slave_node
@@ -62,7 +67,7 @@ class Contact_Elem():
         self.contact_elem_dict = contact_elem_dict
         return self.contact_elem_dict
     
-    def find_master_normal(self, method = 'average'):
+    def create_master_normal_dict(self, method = 'average'):
         ''' Get the normal to a node. Since there is no unique way to define the
         normal to a node, two methods are available:
         
@@ -85,15 +90,46 @@ class Contact_Elem():
                 change the orientation of the normal vector either 1.0 or -1.0
         
         return
-            normal_vec : np.array
+            self.master_normal_dict : dict
+                dict which maps master nodes to the normal vector
         '''
         
         for master_node in self.contact_elem_dict:
-            node_normal_vec = cyclic_top_high.get_normal_to_node( master_node, method)
+            node_normal_vec = self.get_normal_at_master_node(master_node, method)
             self.master_normal_dict[master_node] = node_normal_vec
-            
+        return self.master_normal_dict
+    
+    def get_normal_at_master_node(self, master_node, method = 'average'):
+        ''' get the normal vector of given a node
+        
+        parameters:
+            master_node : int   
+               id of the master node
+            method: str
+                string specifying the method to compute normal at node
+        return
+            normal_vector : np.array
+        '''
+        return self.master_submesh.get_normal_to_node( master_node, method)
+    
     def write_files(self, filename):
         pass
         
-class Cyclic_Contact_Elem(contact_elem):        
+class Cyclic_Contact(Contact):     
+    ''' This class intend to hanle cylic contact problem,
+    where master and slaves have a angule between them.
+    Basically, the slave SubMesh is rotate (Virtual Slave) by the sector angule 
+    and node pair are found by the minimum Euclidian distance.
+    
+    
+    '''
+    def __init__(self, master_submesh, slave_submesh, sector_angle= 0, unit = 'deg', type = 'node2node', tol_radius = 1e-6 ):
+        
+        virtual_slave = virtual_cyclic_top_high = copy.deepcopy(slave_submesh)
+        virtual_slave.rot_z(sector_angle, unit)
+        self.virtual_slave = virtual_slave
+        self.sector_angle = sector_angle
+        self.unit = unit
+        super(Cyclic_Contact,self).__init__(master_submesh,virtual_slave, type, tol_radius)
+        
     
