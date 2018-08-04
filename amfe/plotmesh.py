@@ -889,13 +889,13 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
             points = np.array([[x_min,y_min,z_min],
                                 [x_max,y_max,z_max]])
 
-            #ax.plot(points[:,0], points[:,1], points[:,2], 'ko')
-            mult = 1.3
-            min_lim *= 1.3 
-            max_lim *= 1.3
-            ax.set_xlim((min_lim,max_lim))
-            ax.set_ylim((min_lim,max_lim))
-            ax.set_zlim((min_lim,max_lim))
+            ax.plot(points[:,0], points[:,1], points[:,2], 'o', color = 'white')
+            #mult = 1.3
+            #min_lim *= 1.3 
+            #max_lim *= 1.3
+            #ax.set_xlim((min_lim,max_lim))
+            #ax.set_ylim((min_lim,max_lim))
+            #ax.set_zlim((min_lim,max_lim))
             
     if Label:
         ax.legend(handles= legend_handles,fontsize=30)
