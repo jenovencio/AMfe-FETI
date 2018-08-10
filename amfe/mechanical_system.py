@@ -1892,9 +1892,14 @@ class CraigBamptonComponent(MechanicalSystem):
         dir_dofs = master_dofs
         ndof, garbage = K.shape
         f = np.zeros(ndof)
-
-        K, M, f = self.insert_dirichlet_boundary_cond(K,M,f,dir_dofs)
-        K_mod, M_mod, f_mod = self.insert_cyclic_symm_boundary_cond(K, M, f, low_dofs = low_dofs , high_dofs = high_dofs , theta =  harm_index*alpha)    
+        
+        # creating copies
+        Mc = M[:]
+        Kc = K[:]
+        fc = f[:]
+        
+        Km, Mm, fm = self.insert_dirichlet_boundary_cond(Kc,Mc,fc,dir_dofs)
+        K_mod, M_mod, f_mod = self.insert_cyclic_symm_boundary_cond(Km, Mm, fm, low_dofs = low_dofs , high_dofs = high_dofs , theta =  harm_index*alpha)    
         Kii, S, S_inv, T, fi = self.create_selection_operator(dir_dofs, K_mod, f_mod, remove = True, Guyan=True)
         Mii, Sm, Sm_inv, Tm = self.create_selection_operator(dir_dofs, M_mod, remove = True)
         

@@ -889,13 +889,17 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
             points = np.array([[x_min,y_min,z_min],
                                 [x_max,y_max,z_max]])
 
-            ax.plot(points[:,0], points[:,1], points[:,2], 'o', color = 'white')
+            #ax.plot(points[:,0], points[:,1], points[:,2], 'o', color = 'white')
             #mult = 1.3
             #min_lim *= 1.3 
             #max_lim *= 1.3
-            #ax.set_xlim((min_lim,max_lim))
-            #ax.set_ylim((min_lim,max_lim))
-            #ax.set_zlim((min_lim,max_lim))
+            ax.set_xlim((min_lim,max_lim))
+            ax.set_ylim((min_lim,max_lim))
+            ax.set_zlim((min_lim,max_lim))
+            
+            #nodes_in_elem = set(np.array(vertice_matrix).reshape(-1))
+            #points = points_coord[np.ix_(list(nodes_in_elem),[0,1,2])]
+            #ax.plot(points[:,0], points[:,1], points[:,2], 'ko', markersize = 0.0001)
             
     if Label:
         ax.legend(handles= legend_handles,fontsize=30)
@@ -942,6 +946,14 @@ def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, in
         if elem_type=='Tet4':
             connect = get_triangule_faces_from_tetrahedral(connect)
             ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+        
+        elif elem_type=='Hexa20':
+            connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
+            ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+        
+        elif elem_type=='Hexa8':
+                    connect = get_quad_faces_from_hexa(np.array(connect))
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
         else:
             raise('Type of element = %s not support by this method.' %elem_type)
     elif elem_type in Two_D_elem_list:
@@ -997,7 +1009,7 @@ def plot_3D_polygon(points_coord, vertice_matrix, ax=None, alpha=0.2, color='gre
     if plot_nodes:
         nodes_in_elem = set(np.array(vertice_matrix).reshape(-1))
         points = points_coord[np.ix_(list(nodes_in_elem),[0,1,2])]
-        ax.plot(points[:,0], points[:,1], points[:,2], 'ko')
+        ax.plot(points[:,0], points[:,1], points[:,2], 'ko', markersize=1)
 
     return ax
 
