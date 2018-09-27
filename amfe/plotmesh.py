@@ -883,8 +883,7 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                     color_bound = colors[0]
                 ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=1, color=color_bound, plot_nodes=plot_nodes)
                 legend_handles.append(mpatches.Patch(color=color_bound, label=str(key)))
-        
-<<<<<<< HEAD
+
     if not plot_nodes:
         x_max = max(nodes[:,0])
         x_min = min(nodes[:,0])
