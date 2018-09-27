@@ -754,10 +754,11 @@ def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
     dof = []
 
     displacement = my_system.u_output[u_id]
-    node_list = my_system.assembly_class.node_list
+    node_list = my_system.mesh_class.nodes
     connectivity = my_system.mesh_class.connectivity
-    nodes = my_system.mesh_class.nodes[my_system.assembly_class.node_list]
-
+    #nodes = my_system.mesh_class.nodes[my_system.assembly_class.node_list]
+    nodes = node_list
+    
     elem_dofs = my_system.assembly_class.mesh.no_of_dofs_per_node
     elem_nodes = []
     for i,node in enumerate(nodes):
@@ -785,7 +786,8 @@ def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
     ax.autoscale()
     p = PatchCollection(patches)
     p.set_edgecolor('k')
-    p.set_facecolor(colors[np.random.randint(0,9)])
+    p.set_facecolor((1,1,1))
+    p.set_linewidth(0.5)
     ax.add_collection(p)
     ax.autoscale()
     patches.clear()
@@ -823,8 +825,10 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
         elem_list_type = submesh.get_element_type_list()
         
         if len(elem_list_type)>1:
-            raise('SubMesh with more than one type of element. \n \
-            This function do not support multiple type of elements.')
+            print('SubMesh with more than one type of element. \n \
+            This function do not support multiple type of elements. \
+            moving to the next SubMesh')
+            continue 
         
         elem_type = elem_list_type[0]
         try:
@@ -834,6 +838,12 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                     connect = get_triangule_faces_from_tetrahedral(connect)
                     ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
                     legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+
+                elif elem_type=='Tet10':
+                    connect = get_triangule_faces_from_tetrahedral(np.array(connect).T[0:4].T)
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+
                 elif elem_type=='Hexa20':
                     connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
                     ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
@@ -857,7 +867,7 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
             elem_list_type = submesh.get_element_type_list()
         
             if len(elem_list_type)>1:
-                raise('SubMesh with more than one type of element. \n \
+                print('SubMesh with more than one type of element. \n \
                 This function do not support multiple type of elements.')
             
             if not isinstance(elem_list_type[0],str):
@@ -871,18 +881,24 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                 ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=1, color=color_bound, plot_nodes=plot_nodes)
                 legend_handles.append(mpatches.Patch(color=color_bound, label=str(key)))
         
-        if not plot_nodes:
-            x_max = max(nodes[:,0])
-            x_min = min(nodes[:,0])
-            y_max = max(nodes[:,1])
-            y_min = min(nodes[:,1])
-            z_max = max(nodes[:,2])
-            z_min = min(nodes[:,2])
+    if not plot_nodes:
+        x_max = max(nodes[:,0])
+        x_min = min(nodes[:,0])
+        y_max = max(nodes[:,1])
+        y_min = min(nodes[:,1])
+        z_max = max(nodes[:,2])
+        z_min = min(nodes[:,2])
 
-            points = np.array([[x_min,y_min,z_min],
-                                [x_max,y_max,z_max]])
+        i_max = max([x_max,y_max,z_max])
+        i_min = min([x_min,y_min,z_min])
 
-            ax.plot(points[:,0], points[:,1], points[:,2], 'ko')
+        #points = np.array([[x_min,y_min,z_min],
+        #                    [x_max,y_max,z_max]])
+
+        points = np.array([[i_min,i_min,i_min],
+                            [i_max,i_max,i_max]])
+        ax.plot(points[:,0], points[:,1], points[:,2], 'ko')
+
     if Label:
         ax.legend(handles= legend_handles,fontsize=30)
     return ax

@@ -14,7 +14,7 @@ import numpy as np
 
 
 # Same for Abaqus
-abaq2amfe = {'C3D10M' : 'Tet10',
+abaq2amfe = {'C3D10' : 'Tet10',
              'C3D8' : 'Hexa8',
              'C3D20' : 'Hexa20',
              'C3D20R' : 'Hexa20',

@@ -1,4 +1,4 @@
-0# Copyright (c) 2017, Lehrstuhl fuer Angewandte Mechanik, Technische
+# Copyright (c) 2017, Lehrstuhl fuer Angewandte Mechanik, Technische
 # Universitaet Muenchen.
 #
 # Distributed under BSD-3-Clause License. See LICENSE-File for more information
@@ -103,7 +103,7 @@ nas2amfe = {'CTETRA' : 'Tet10',
             'CHEXA' : 'Hexa8'}
 
 # Same for Abaqus
-abaq2amfe = {'C3D10M' : 'Tet10',
+abaq2amfe = {'C3D10' : 'Tet10',
              'C3D8' : 'Hexa8',
              'C3D20' : 'Hexa20',
              'C3D4' : 'Tet4',
@@ -1846,7 +1846,10 @@ class Mesh:
         if unit=='deg':
             # transforme to rad
             alpha_rad = np.deg2rad(alpha)
-    
+        elif unit=='rad':
+            alpha_rad = alpha
+        else:
+            raise('Unit is not supported.')
 
         
         cos_a = np.cos(alpha_rad)
