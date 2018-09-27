@@ -19,7 +19,7 @@ import itertools
 import copy
 import matplotlib.patches as mpatches
 
-Two_D_elem_list = ['Tri3','Tri6','Quad4','Quad8','Bar2Dlumped']
+Two_D_elem_list = ['Tri3','Tri6','Quad4','Quad8','Bar2Dlumped','Quad4Boundary']
 Tri_D_elem_list = ['Tet4','Tet10','Hexa8','Hexa20','Prism6']
 Boundary_elem_list = ['LineLinearBoundary',
                       'LineQuadraticBoundary',
@@ -877,10 +877,14 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
             connect = mesh_obj.groups[key].get_submesh_connectivity()
 
             if elem_type in Two_D_elem_list:
-                color_bound = colors[submesh.key]
+                try:
+                    color_bound = colors[submesh.key]
+                except:
+                    color_bound = colors[0]
                 ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=1, color=color_bound, plot_nodes=plot_nodes)
                 legend_handles.append(mpatches.Patch(color=color_bound, label=str(key)))
         
+<<<<<<< HEAD
     if not plot_nodes:
         x_max = max(nodes[:,0])
         x_min = min(nodes[:,0])
@@ -904,7 +908,7 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
     return ax
         
 
-def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, interface_nodes=True):
+def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, interface_nodes=True, scale = 1.0):
     ''' This function add a plot Submesh to a ax
 
     argument 
@@ -928,19 +932,30 @@ def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, in
 
     '''
     elem_list_type = submesh.get_element_type_list()
+    
+    if ax==None:
+        ax = a3.Axes3D(plt.figure()) 
         
     if len(elem_list_type)>1:
         raise('SubMesh with more than one type of element. \n \
         This function do not support multiple type of elements.')
 
     mesh_obj = submesh.parent_mesh    
-    nodes = mesh_obj.nodes
+    nodes = copy.deepcopy(mesh_obj.nodes)*scale
     elem_type = elem_list_type[0]
     connect = submesh.get_submesh_connectivity()
     if elem_type in Tri_D_elem_list:
         if elem_type=='Tet4':
             connect = get_triangule_faces_from_tetrahedral(connect)
             ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+        
+        elif elem_type=='Hexa20':
+            connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
+            ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+        
+        elif elem_type=='Hexa8':
+                    connect = get_quad_faces_from_hexa(np.array(connect))
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
         else:
             raise('Type of element = %s not support by this method.' %elem_type)
     elif elem_type in Two_D_elem_list:
@@ -996,7 +1011,7 @@ def plot_3D_polygon(points_coord, vertice_matrix, ax=None, alpha=0.2, color='gre
     if plot_nodes:
         nodes_in_elem = set(np.array(vertice_matrix).reshape(-1))
         points = points_coord[np.ix_(list(nodes_in_elem),[0,1,2])]
-        ax.plot(points[:,0], points[:,1], points[:,2], 'ko')
+        ax.plot(points[:,0], points[:,1], points[:,2], 'ko', markersize=1)
 
     return ax
 

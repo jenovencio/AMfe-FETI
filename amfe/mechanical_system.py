@@ -1716,6 +1716,8 @@ class CraigBamptonComponent(MechanicalSystem):
         self.P_cyclic = None # Permutation of cyclic symmetry condition
         self.num_cyclic_dofs = 0
         self.Guyan = None
+        self.master_dofs = None
+        self.slave_dofs = None
         
     def compute_Craig_Bampton_Red(self,M, K, master_dofs, slave_dofs, no_of_modes=5):
         ''' compute the craig bampton reduction
@@ -1883,14 +1885,21 @@ class CraigBamptonComponent(MechanicalSystem):
                 [ I   0 ]
                 [ 0  phi]
         ''' 
+        self.master_dofs = master_dofs
+        
         alpha = 2.0*np.pi/num_of_sector
         
         dir_dofs = master_dofs
         ndof, garbage = K.shape
         f = np.zeros(ndof)
-
-        K, M, f = self.insert_dirichlet_boundary_cond(K,M,f,dir_dofs)
-        K_mod, M_mod, f_mod = self.insert_cyclic_symm_boundary_cond(K, M, f, low_dofs = low_dofs , high_dofs = high_dofs , theta =  harm_index*alpha)    
+        
+        # creating copies
+        Mc = M[:]
+        Kc = K[:]
+        fc = f[:]
+        
+        Km, Mm, fm = self.insert_dirichlet_boundary_cond(Kc,Mc,fc,dir_dofs)
+        K_mod, M_mod, f_mod = self.insert_cyclic_symm_boundary_cond(Km, Mm, fm, low_dofs = low_dofs , high_dofs = high_dofs , theta =  harm_index*alpha)    
         Kii, S, S_inv, T, fi = self.create_selection_operator(dir_dofs, K_mod, f_mod, remove = True, Guyan=True)
         Mii, Sm, Sm_inv, Tm = self.create_selection_operator(dir_dofs, M_mod, remove = True)
         
@@ -1926,6 +1935,24 @@ class CraigBamptonComponent(MechanicalSystem):
         Tcg = sparse.hstack((self.Guyan, sparse.csr_matrix(aug_mode_shapes))).tocsc()
         return Tcg, Tcg_inv
 
+    def get_mode(self, mode_num):
+        ''' get mode shape based on mode number
+        
+        parametes:
+            mode_num : int
+                mode number
+                
+        return 
+            np.array
+                vector with the eigenvector associated with mode number (mode_num)
+        '''
+        if mode_num < len(self.aug_mode_shapes):
+            return self.aug_mode_shapes[mode_num]
+        else:
+            print('Error. Not a valide mode number!')
+            return None
+        
+    
     def build_local(self,M_bb,M_ii,M_ib):
         return sparse.vstack((sparse.hstack((M_bb,M_ib.T)), sparse.hstack((M_ib,M_ii)))).tocsc()
 
@@ -1963,8 +1990,7 @@ class CraigBamptonComponent(MechanicalSystem):
             local2global[local_i] = global_i
         
         return gloal2local, local2global
-        
-        
+            
     def get_reduced_ciclic_symm_system(self, K, M, f, num_of_cyclic_dofs):
         ''' This function gets the reduced system of the global cyclic system operators
         
@@ -2297,6 +2323,26 @@ class CraigBamptonComponent(MechanicalSystem):
         self.inv_id_matrix = inv_id_matrix
         return self.inv_id_matrix
   
+    def get_dofs(self, submesh_tag, direction ='xyz', type = 'phys_group'):
+        ''' get dofs given a submesh and a global id_matrix
+        
+        parameters:
+            submesh_tag : str
+                 submesh tag 
+            direction : str
+                direction to consirer 'xyz'
+            id_matrix : dict
+                dict maps nodes to DOFs
+                
+        return 
+            dir_dofs : list
+                ist with Dirichlet dofs
+        '''
+        
+        submesh_obj = self.mesh_class.get_submesh(type, submesh_tag)
+        
+        return get_dofs(submesh_obj, direction ='xyz', id_matrix = self.assembly_class.id_matrix)
+  
 class MapInt2Global():
     '''
         We also assume that ub can be calculated by ui uisng:
@@ -2336,9 +2382,10 @@ class MapInt2Global():
         T = lambda ui : P.dot(np.concatenate((ub(ui), ui), axis=-1))  
         return T
     
-    
-def get_dirichlet_dofs(submesh_obj, direction ='xyz', id_matrix=None):
-    ''' get dirichlet dofs given a submesh and a global id_matrix
+
+
+def get_dofs(submesh_obj, direction ='xyz', id_matrix=None):
+    ''' get dofs given a submesh and a global id_matrix
     
     # parameters:
         # submesh_obj : amfe.SubMesh
@@ -2381,4 +2428,8 @@ def get_dirichlet_dofs(submesh_obj, direction ='xyz', id_matrix=None):
             dir_dofs.extend(local_dofs)
     
     return dir_dofs
+    
+
+#alias for future use
+get_dirichlet_dofs = get_dofs
 

@@ -23,7 +23,7 @@ abaq2amfe = {'C3D10' : 'Tet10',
              'C3D8I' : 'Hexa8', # acutally the better version
              'B31' : None,
              'CONN3D2' : None,
-            }
+             'S4'  : 'Quad4Boundary'}
 
 def map_nodeid_abaq2amfe(node_id):
     ''' maps a node id in abaqus to node id
