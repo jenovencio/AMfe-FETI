@@ -16,6 +16,8 @@ class Contact():
         self.slave_submesh =  slave_submesh
         self.contact_elem_dict = {}
         self.master_normal_dict = {}
+        self.master_nodes = []
+        self.slaves_nodes = []
         
         if type == 'node2node':
             self.find_node_pairs(master_submesh,slave_submesh, tol_radius)
@@ -62,8 +64,10 @@ class Contact():
             if min_dist>tol_radius:
                 print('It was not possible to find a slave node for master node %i ')
             else:
-                contact_elem_dict[master_node] = slave_node
-        
+                contact_elem_dict[master_node] = slave_pair
+                self.master_nodes.append(master_node)
+                self.slaves_nodes.append(slave_pair)
+                
         self.contact_elem_dict = contact_elem_dict
         return self.contact_elem_dict
     
@@ -116,7 +120,7 @@ class Contact():
         pass
         
 class Cyclic_Contact(Contact):     
-    ''' This class intend to hanle cylic contact problem,
+    ''' This class intend to handle cyclic contact problem,
     where master and slaves have a angule between them.
     Basically, the slave SubMesh is rotate (Virtual Slave) by the sector angule 
     and node pair are found by the minimum Euclidian distance.

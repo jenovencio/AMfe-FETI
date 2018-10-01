@@ -900,7 +900,7 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
 
         points = np.array([[i_min,i_min,i_min],
                             [i_max,i_max,i_max]])
-        ax.plot(points[:,0], points[:,1], points[:,2], 'ko')
+        ax.plot(points[:,0], points[:,1], points[:,2], 'wo')
 
     if Label:
         ax.legend(handles= legend_handles,fontsize=30)
@@ -967,6 +967,24 @@ def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, in
         for nei_id in submesh.interface_nodes_dict:
             interface_nodes = submesh.interface_nodes_dict[nei_id]
             ax = plot_3D_interface_nodes(interface_nodes, nodes, color=colors[nei_id], ax=ax)
+            
+    if not plot_nodes:
+        x_max = max(nodes[:,0])
+        x_min = min(nodes[:,0])
+        y_max = max(nodes[:,1])
+        y_min = min(nodes[:,1])
+        z_max = max(nodes[:,2])
+        z_min = min(nodes[:,2])
+
+        i_max = max([x_max,y_max,z_max])
+        i_min = min([x_min,y_min,z_min])
+
+        #points = np.array([[x_min,y_min,z_min],
+        #                    [x_max,y_max,z_max]])
+
+        points = np.array([[i_min,i_min,i_min],
+                            [i_max,i_max,i_max]])
+        ax.plot(points[:,0], points[:,1], points[:,2], 'wo')            
             
     return ax
 
@@ -1126,15 +1144,17 @@ def plot_3D_interface_nodes(nodes_list,node_coord, color=(0,0,0), ax=None):
     ax.plot(points[:,0], points[:,1], points[:,2], 'o', color=color)
     return ax
     
-def plot_3D_displacement(system_obj,scale=1.0,ax=None, displacement_id = 1):
+def plot_3D_displacement(system_obj,factor=1.0, scale=1.0,ax=None, displacement_id = 1, **kwargs):
     ''' This function plots the displacement of a system_obj
     
     arguments
         system_obj :  MechanicalSystem obj 
             MechanicalSystem obj with u_output 
         
-        scale : float
+        factor : float
             scale factor of the displacement
+        scale : float
+            scale for the mesh plot
         ax : Axes3D
             matplotlib Axes3D object to plot the polygon
         
@@ -1155,13 +1175,14 @@ def plot_3D_displacement(system_obj,scale=1.0,ax=None, displacement_id = 1):
     nodes_coord = system_obj.mesh_class.nodes
     displacement = system_obj.u_output[displacement_id] 
     local_mesh_class = copy.deepcopy(system_obj.mesh_class)
-    for i,nodes in system_obj.assembly_class.id_matrix.items():
-        old_node_coord = nodes_coord[i]
-        delta_coord = scale*displacement[nodes]
-        new_node_coord = list(old_node_coord + delta_coord)
-        new_node_position.append(new_node_coord)
+    for node_id,dof_list in system_obj.assembly_class.id_matrix.items():
+        old_node_coord = nodes_coord[node_id]
+        delta_coord = factor*displacement[dof_list]
+        #new_node_coord = old_node_coord + delta_coord
+        #new_node_position.append(new_node_coord)
+        local_mesh_class.nodes[node_id] = old_node_coord + delta_coord
     
-    local_mesh_class.nodes = np.array(new_node_position)
+    #local_mesh_class.nodes = np.array(new_node_position)
 
-    ax = plot3Dmesh(local_mesh_class,ax=ax, boundaries=False, alpha=0.2, color='grey', plot_nodes=False)
+    ax = plot3Dmesh(local_mesh_class,ax=ax, boundaries=False, scale=scale, **kwargs)
     return ax

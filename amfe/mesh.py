@@ -1995,9 +1995,16 @@ class SubMesh():
         '''
         coord = self.get_elem_coord(elem_id)
         vector1 = coord[1] - coord[0]
-        vector2 = coord[2] - coord[0]
-        normal_vec  = np.cross(vector1, vector2)
-        unit_normal_vec = normal_vec/np.linalg.norm(normal_vec)
+        try:
+            # for 3D cases
+            vector2 = coord[2] - coord[0]
+            normal_vec  = np.cross(vector1, vector2)
+            unit_normal_vec = normal_vec/np.linalg.norm(normal_vec)    
+        except:
+            # for 2D cases
+            normal_vec = np.array([-vector1[1], vector1[0],0.0])
+            unit_normal_vec = normal_vec/np.linalg.norm(normal_vec)    
+            
         return orientation*unit_normal_vec
     
     def create_elem_connect_to_node(self):

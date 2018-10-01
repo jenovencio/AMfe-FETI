@@ -35,7 +35,9 @@ __all__ = [
     'reduce_mechanical_system_state_space',
     'MechanicalAssembly',
     'CraigBamptonComponent',
-    'get_dirichlet_dofs'
+    'get_dirichlet_dofs',
+    'create_dof_to_node_map',
+    'get_dofs'
 ]
 
 
@@ -2415,21 +2417,35 @@ def get_dofs(submesh_obj, direction ='xyz', id_matrix=None):
         dofs_to_keep.append(z_dir)
     
     dir_nodes = submesh_obj.global_node_list
-    
     dir_dofs = []
-    for node, dofs in id_matrix.items():
-        if node in dir_nodes:
-            local_dofs = []
-            for i in dofs_to_keep:
-                try:
-                    local_dofs.append(dofs[i])
-                except:
-                    print('It is not possible to issert dof %i as dirichlet dof' %i)
-            dir_dofs.extend(local_dofs)
+    for node in dir_nodes:
+        dofs = id_matrix[node]
+        local_dofs = []
+        for i in dofs_to_keep:
+            try:
+                local_dofs.append(dofs[i])
+            except:
+                print('It is not possible to find dof %i as dirichlet dof' %dofs[i])
+        dir_dofs.extend(local_dofs)
     
     return dir_dofs
-    
 
 #alias for future use
 get_dirichlet_dofs = get_dofs
+    
+def create_dof_to_node_map(id_matrix):
+    ''' id matrix has x, y, and z in the sequence
+    
+    '''
+    dof_to_node = {}
+    dof_to_direction = {}
+    direction_list = ['x','y','z']
+    for node_id, dof_list in id_matrix.items():
+        for direction_id, dof_id in enumerate(dof_list):
+            
+            dof_to_node[dof_id] = node_id
+            dof_to_direction[dof_id] = direction_list[direction_id]
+            
+    return dof_to_node, dof_to_direction
+
 
