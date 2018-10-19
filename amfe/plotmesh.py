@@ -44,7 +44,7 @@ colors =  colors*10
 
 max_number_of_color = len(colors)
 
-def plot_submesh(submesh_obj,ax=None, color_id = None):
+def plot_submesh(submesh_obj,ax=None, color_id = None,plot_1d = False):
     ''' This function plots 2D meshes, suport elements are 
     Triagules = Tri3, Tri6
     lines = straight_line, straight_line
@@ -149,16 +149,13 @@ def plot_submesh(submesh_obj,ax=None, color_id = None):
     if points:
         ax.scatter(np.array(points).T[0], np.array(points).T[1], marker='o',label=str(submesh_obj.key))
 
-    # if lines:
-        # #lc = mc.LineCollection(lines, linewidths=2, color=colors[np.random.randint(0,9)])
-        # lc = mc.LineCollection(lines, linewidths=2, color=colors[lines_counter])
-        # ax.add_collection(lc)
-        # ax.autoscale()
-        # ax.margins(0.1)
-        # if lines_counter==max_number_of_color:
-           # lines_counter = 0
-        # else:
-            # lines_counter += 1
+    if plot_1d:
+        lc = mc.LineCollection(lines, linewidths=2, color=colors[np.random.randint(0,9)])
+        lc = mc.LineCollection(lines, linewidths=2, color=colors[lines_counter])
+        ax.add_collection(lc)
+        
+        
+        
     
     if submesh_obj.interface_nodes_dict:
         plot_nodes_in_the_interface(submesh_obj,ax)
@@ -372,11 +369,11 @@ def plot_domain(domain,ax=None):
     '''
     
 
-    for j in domain.groups:
+    for i,j in enumerate(domain.groups):
         if ax == None:
-            ax = plot_submesh(domain.groups[j], color_id = j )
+            ax = plot_submesh(domain.groups[j], color_id = i )
         else:
-            plot_submesh(domain.groups[j],ax, color_id = j)      
+            plot_submesh(domain.groups[j],ax, color_id = i)      
     
     return ax   
 
@@ -1087,7 +1084,7 @@ def get_quad_faces_from_hexa(hexa_list,surface_only=True):
     '''
 
     quad =[]
-    
+    quad_ordered = []
 
     #All_square = itertools.combinations([0,1,2,3,4,5,6,7], 4)
     All_square = [[0,1,2,3],
@@ -1101,22 +1098,18 @@ def get_quad_faces_from_hexa(hexa_list,surface_only=True):
         for i,j,k,h in All_square:
             quad_face = [Hex[i],Hex[j],Hex[k],Hex[h]]
             quad.append(quad_face)
+            quad_ordered.append(list(np.sort(quad_face)))
     
-    unique_quad_list = list(np.unique(quad,axis=0))
-    quad_ordered_list =[]
-    
+    quad_list = []
     if surface_only:
         surface_quad = []
-        for unique_quad in  unique_quad_list:
-            quad_ordered = list(np.sort(unique_quad))
-            if quad_ordered in quad_ordered_list:
-                continue
+        for j,unique_quad in  enumerate(quad_ordered):
+            if quad_ordered.count(unique_quad) == 1:
+                quad_list.append(quad[j])
             else:
-                quad_ordered_list.append(quad_ordered)
-                surface_quad.append(unique_quad)
-        quad_list = surface_quad        
+                continue
     else:
-        quad_list = unique_quad_list 
+        quad_list = quad 
 
     return quad_list
 
@@ -1186,3 +1179,166 @@ def plot_3D_displacement(system_obj,factor=1.0, scale=1.0,ax=None, displacement_
 
     ax = plot3Dmesh(local_mesh_class,ax=ax, boundaries=False, scale=scale, **kwargs)
     return ax
+    
+class Plot3DMesh():
+    def __init__(self,mesh_obj,ax=None, boundaries=True, displacement_list = None,alpha=0.2, color='grey', 
+                 plot_nodes=True, scale = 1.0, factor =1.0, Label = False, displacement_id=1, **kwargs):
+        
+        self.mesh_obj = copy.deepcopy(mesh_obj)
+        
+        self.ax=ax
+        
+        self.boundaries = boundaries
+        self.alpha =alpha
+        self.color = color
+        self.plot_nodes=plot_nodes
+        self.scale = scale
+        self.Label = Label
+        self.displacement_list = displacement_list
+        self.displacement_id = displacement_id
+        self.factor = factor
+        self.last_scale = None
+        self.pre_proc()
+        
+    def pre_proc(self):
+        
+        self.elem_type_connec = {}
+        self.elem_type_polygons = {}
+        mesh_obj = self.mesh_obj
+        nodes = mesh_obj.nodes*self.scale
+        mesh_obj.split_in_groups()
+        for key in mesh_obj.groups:
+            submesh = mesh_obj.groups[key]
+            elem_list_type = submesh.get_element_type_list()
+            
+            if len(elem_list_type)>1:
+                print('SubMesh with more than one type of element. \n \
+                This function do not support multiple type of elements. \
+                moving to the next SubMesh')
+                continue 
+            
+            elem_type = elem_list_type[0]
+            try:
+                connect = mesh_obj.groups[key].get_submesh_connectivity()
+                if elem_type in Tri_D_elem_list:
+                    if elem_type=='Tet4':
+                        connect = get_triangule_faces_from_tetrahedral(connect)
+                        
+                    elif elem_type=='Tet10':
+                        connect = get_triangule_faces_from_tetrahedral(np.array(connect).T[0:4].T)
+                        
+                    elif elem_type=='Hexa20':
+                        connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
+                        
+                    elif elem_type=='Hexa8':
+                        connect = get_quad_faces_from_hexa(np.array(connect))
+                        
+                    else:
+                        print('Type of element = %s not support by this method.' %elem_type)
+                        continue
+                        
+                    self.elem_type_polygons[elem_type] = self.create_3D_polygons(nodes, connect)
+                    self.elem_type_connec[elem_type] = connect
+            except:
+                print('Element in mesh is not supported.')
+        
+    def show(self,factor=1.0,displacement_id=1,scale=None,plot_nodes=True, collections=[],ax=None):
+        
+        if scale is not None:
+            self.scale = scale
+
+        if self.last_scale is not None:
+            if self.scale!=self.last_scale: 
+                self.mesh_obj.nodes = self.mesh_obj.nodes*self.scale
+                self.last_scale = self.scale
+        else:       
+            self.mesh_obj.nodes = self.mesh_obj.nodes*self.scale
+            self.last_scale = self.scale
+
+        
+        try:
+            elem_type_polygons = self.update_nodes(factor=factor, displacement = self.displacement_list[displacement_id])
+        except:
+            elem_type_polygons = self.update_nodes()
+
+        
+        points_coord = self.mesh_obj.nodes
+        
+        if ax is None:
+            if self.ax is None:
+                self.ax = a3.Axes3D(plt.figure()) 
+        else:
+            self.ax = ax
+                
+        #restart collection
+        self.ax.collections = collections
+        for elem_type, pols in  self.elem_type_polygons.items():
+            self.ax.add_collection3d(pols)
+            
+            if plot_nodes:
+                vertice_matrix = self.elem_type_connec[elem_type]
+                nodes_in_elem = set(np.array(vertice_matrix).reshape(-1))
+                points = points_coord[np.ix_(list(nodes_in_elem),[0,1,2])]
+                self.ax.plot(points[:,0], points[:,1], points[:,2], 'ko', markersize=1)
+        
+        return self.ax
+    
+    def update_displacement(self,displacement,factor=1.0):
+
+        nodes = np.copy(self.mesh_obj.nodes)
+        ndof = len(displacement)
+        displacemet_3_ny_m = displacement.reshape((int(ndof/3),3))
+        nodes += factor*displacemet_3_ny_m
+        return nodes
+
+
+    def update_nodes(self,factor=1.0,displacement=None):
+
+        for elem_type, connect in  self.elem_type_connec.items():
+            if displacement is not None:
+                nodes = self.update_displacement(displacement,factor)
+            else:
+                nodes = self.mesh_obj.nodes
+            self.elem_type_polygons[elem_type] = self.create_3D_polygons(nodes, connect)
+        
+        return self.elem_type_polygons[elem_type]
+        
+
+    def create_3D_polygons(self,points_coord, vertice_matrix):
+        ''' This function plots 3D polygonas based on points coordinates and
+        matrix with the vertices of the polygons
+
+        argument
+            points_coord : np.array
+                array with the point coordinates
+            
+            vertice_matrix : np.array
+                matrix representing each polygon, where the number of pointer
+                to the points_coord array with np.int
+           
+            ax : Axes3D
+                matplotlib Axes3D object to plot the polygon
+            
+            alpha : float
+                float whcih controls the Polygon transparence
+            
+            color : str or tuple
+                color of the polygon, check matplotlib document 
+                to see the supported color names
+
+        return
+            ax : Axes3D
+                matplotlib Axes3D wich polygon object
+        '''
+
+
+        alpha = self.alpha
+        color = self.color
+        vts = points_coord[vertice_matrix, :]
+        pol = a3.art3d.Poly3DCollection(vts)
+        pol.set_alpha(alpha)
+        pol.set_color(color)
+        pol.set_edgecolor((0,0,0))
+        
+        self.polygons = pol
+        return self.polygons

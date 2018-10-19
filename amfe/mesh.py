@@ -639,10 +639,22 @@ class Mesh:
         self.node_idx = node_idx
         self.nodes = nodes*scale_factor
         
-        print('WARNING 3D case were selected')
-        self.no_of_dofs_per_node = 3
         
         
+        
+        elem_set = self.get_elem_type()
+        
+        self.no_of_dofs_per_node = 2
+        for i in elem_set:
+            if i in self.element_3d_set:
+                self.no_of_dofs_per_node = 3
+        
+        if self.no_of_dofs_per_node ==2:
+            print('WARNING! 2D case were selected')
+        
+        if self.no_of_dofs_per_node ==3:
+            print('WARNING! 3D case were selected')
+            
         self._update_mesh_props()
         # printing some information regarding the physical groups
         print('Mesh', filename, 'successfully imported.',
@@ -934,6 +946,7 @@ class Mesh:
         self.no_of_dofs_per_node = 2
         for i in element_types:
             if i in self.element_3d_set:
+                print('3D case was choosen')
                 self.no_of_dofs_per_node = 3
 
         # fill the nodes to the array
@@ -961,7 +974,6 @@ class Mesh:
               '\nAssign a material to a physical group.')
         logging.info('*************************************************************')
         return
-
 
     def load_group_to_mesh(self, key, material, mesh_prop='phys_group'):
         '''
@@ -1748,6 +1760,15 @@ class Mesh:
             self.groups[key] = submesh
             self.__last_tag__ = group_type
 
+    def get_elem_type(self,elem_id_list=None):
+        
+        if elem_id_list is not None:
+            database = self.el_df.iloc[elem_id_list]
+        else:
+            database = self.el_df
+        
+        return set(database['el_type'])
+    
 
     def get_submesh(self,tag,value):
         ''' This function returns a submeh obj with a subset of the mesh based on tag 
