@@ -62,7 +62,7 @@ class Contact():
                     min_dist = dist
 
             if min_dist>tol_radius:
-                print('It was not possible to find a slave node for master node %i ')
+                print('It was not possible to find a slave node for master node %i ' %master_node)
             else:
                 contact_elem_dict[master_node] = slave_pair
                 self.master_nodes.append(master_node)

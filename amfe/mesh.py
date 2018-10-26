@@ -79,7 +79,7 @@ element_mapping_list = [
     ['quadratic_line', 'Edge_3',  8, 21,  3,
      'Quadratic edge/line composed of 3 nodes'],
     ['point',       '', 15, np.NAN,  1, 'Single Point'],
-    ['Quad4Boundary',         'Quadrilateral',   3,  9,  4,
+    ['Quad4Boundary',         'Quadrilateral',   3001,  9,  4,
      'Bilinear rectangle / 4 node first order rectangle'],
     # Bars are missing, which are used for simple benfield truss
 ]
@@ -1871,7 +1871,7 @@ class Mesh:
         elif unit=='rad':
             alpha_rad = alpha
         else:
-            raise('Unit is not supported.')
+            raise('The selected unit is %s. This unit is not supported.' %unit)
 
         
         cos_a = np.cos(alpha_rad)
