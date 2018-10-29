@@ -101,11 +101,8 @@ class SelectionOperator():
         
         return sparse.vstack(M_rows).tocsc()
             
-        
-    
     def select_block(self,M,rows,columns):
         pass
-    
     
     def build_B(self,label):
         ''' Build Boolean selection operator
@@ -222,10 +219,11 @@ def get_dofs(id_matrix):
         dofs.extend(value)
     return dofs
     
-def assemble_cyclic_modes(selector_operator,mode_shape,beta=0,compute_left=False,imag=False,theta=0,dimension=3):
+def assemble_cyclic_modes(selector_operator,mode_shape,node_id=0,theta=0,compute_left=True,imag=False,dimension=3):
     
+    beta = node_id*theta
     ej_beta_plus = np.exp(1J*beta)
-    v_primal_diri = []
+    mode_shape_list = []
     s = selector_operator
     n_modes = mode_shape.shape[1]  
      
@@ -236,75 +234,58 @@ def assemble_cyclic_modes(selector_operator,mode_shape,beta=0,compute_left=False
         ud = np.array([0]*s.length['d'])
         
         if compute_left:
-            uh = mode[0:s.length['h']]
-            R = create_voigt_rotation_matrix(len(uh), theta, dim=dimension, unit='rad')   
-            ui = mode[s.length['h']:]
-            if imag:
-                ul = uh
-                uh = R.dot(uh)
-                
-                #R.dot(uh.real)
-                #ul = uh.real
-                u_m = np.hstack((ud,ul.imag,uh.real,ui.imag))
-            else:
-                #ul = R.dot(ej_beta_plus*(uh).real)
-                #ul = ej_beta_plus*uh
-                ul = uh
-                #uh = R.dot(ej_beta_plus*(uh).real)
-                if beta==0:
-                    uh = R.dot(uh)
-                else:    
-                    uh = R.dot(ej_beta_plus*ul)
-                u_m = np.hstack((ud,ul.real,uh.real,ui.real))
+            ur = mode[0:s.length['r']]
+            R = create_voigt_rotation_matrix(len(ur), theta, dim=dimension, unit='rad')   
+            ui = mode[s.length['r']:]
+            ul = R.dot(ej_beta_plus*ur)
+            u_m = np.hstack((ud,ur,ul,ui))
+        
         else:
-            if imag:
-                u_m = np.hstack((ud,mode.imag))
-            else:
-                u_m = np.hstack((ud,mode.real))
+            u_m = np.hstack((ud,mode))
         
         v = s.P.T.dot(u_m)
-        v_primal_diri.append(v)
+        if imag:
+            v = v.imag
+        
+        mode_shape_list.append(v)
 
-
-    v_primal_diri = np.array(v_primal_diri).T
-    return v_primal_diri
+    return np.array(mode_shape_list).T
     
-def set_cyclic_modes_to_component(my_comp,selector_operator,mode_shape,beta=0,compute_left=False, rotation=0, theta=0, unit='rad', dimension=3,**kwargs):
+def set_cyclic_modes_to_component(my_comp,selector_operator,mode_shape,sector_id=0, node_id=0, theta=0, compute_left=True, unit='rad', dimension=3,**kwargs):
 
     
-    n_modes = mode_shape.shape[1]    
     
+    n_modes = mode_shape.shape[1]
+    
+    rotation = theta*sector_id
     
     if unit[0:3]=='deg':
         rotation = np.deg2rad(rotation)
         unit = 'rad'
      
-    v_primal_diri = assemble_cyclic_modes(selector_operator,mode_shape,beta,compute_left,theta=theta,dimension=dimension,**kwargs)
+    mode_shape_list = assemble_cyclic_modes(selector_operator,mode_shape,node_id=node_id,theta=theta,compute_left=compute_left,imag=False,dimension=dimension)
      
     if rotation>0:
+        ej_n_theta = np.exp(1J*sector_id*node_id*theta)
         my_comp = copy.deepcopy(my_comp)
         m_i = my_comp.mesh_class.rot_z(rotation,unit)
         my_comp.set_mesh_obj(m_i)
         my_comp.assembly_class.compute_element_indices()
         
         my_comp.u_output = []
-        my_comp.u_output.append(v_primal_diri[:,0]*0.0)
-
-        ndofs = len(v_primal_diri[:,0])
+        
+        ndofs = len(mode_shape_list[:,0])
         R = create_voigt_rotation_matrix(ndofs , rotation, dim=dimension, unit=unit)
         
         for plot_mode_num in range(n_modes):  
-            u_i = v_primal_diri[:,plot_mode_num]
+            u_i = mode_shape_list[:,plot_mode_num]
             #v_i = rotate_u(u_i,rotation,dim=dimension)        
-            v_i = R.dot(u_i)
+            v_i = R.dot(ej_n_theta*u_i)
             my_comp.u_output.append(v_i)
     
     else:
-        my_comp.u_output = []
-        my_comp.u_output.append(v_primal_diri[:,0]*0.0)
-
         for plot_mode_num in range(n_modes):       
-            my_comp.u_output.append(v_primal_diri[:,plot_mode_num])
+            my_comp.u_output.append(mode_shape_list[:,plot_mode_num])
             
     return my_comp
     
