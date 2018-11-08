@@ -2385,6 +2385,10 @@ class MapInt2Global():
         return T
     
 
+#---------------------------------------------------------------
+# Below this line the function will be deprecate in the future
+#---------------------------------------------------------------
+
 
 def get_dofs(submesh_obj, direction ='xyz', id_matrix=None):
     ''' get dofs given a submesh and a global id_matrix
@@ -2401,7 +2405,7 @@ def get_dofs(submesh_obj, direction ='xyz', id_matrix=None):
         # dir_dofs : list
             # list with Dirichlet dofs
     '''
-
+    print('WARNING! This function will be deprecate. Please import this function from utils')
     x_dir = 0
     y_dir = 1
     z_dir = 2
@@ -2430,13 +2434,12 @@ def get_dofs(submesh_obj, direction ='xyz', id_matrix=None):
     
     return dir_dofs
 
-#alias for future use
-get_dirichlet_dofs = get_dofs
     
 def create_dof_to_node_map(id_matrix):
     ''' id matrix has x, y, and z in the sequence
     
     '''
+    print('WARNING! This function will be deprecate. Please import this function from utils')
     dof_to_node = {}
     dof_to_direction = {}
     direction_list = ['x','y','z']
@@ -2449,3 +2452,5 @@ def create_dof_to_node_map(id_matrix):
     return dof_to_node, dof_to_direction
 
 
+#alias for future use
+get_dirichlet_dofs = get_dofs

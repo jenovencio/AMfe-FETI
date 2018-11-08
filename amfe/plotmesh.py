@@ -21,6 +21,7 @@ import matplotlib.patches as mpatches
 
 Two_D_elem_list = ['Tri3','Tri6','Quad4','Quad8','Bar2Dlumped','Quad4Boundary']
 Tri_D_elem_list = ['Tet4','Tet10','Hexa8','Hexa20','Prism6']
+
 Boundary_elem_list = ['LineLinearBoundary',
                       'LineQuadraticBoundary',
                       'Tri3Boundary',
@@ -162,7 +163,6 @@ def plot_submesh(submesh_obj,ax=None, color_id = None,plot_1d = False):
                          
     return ax
 
-    
 def plot_submesh_obj(submesh_obj,ax=None, color_id=0):
     ''' This function plots 2D meshes, suport elements are 
     Triagules = Tri3, Tri6
@@ -275,7 +275,6 @@ def plot_submesh_obj(submesh_obj,ax=None, color_id=0):
     ax.legend([p, 'Domain'])         
     return ax, p
     
-    
 def plot_nodes_in_the_interface(submesh_obj,ax=None):
     ''' This function plots nodes at the interface 
     
@@ -305,7 +304,6 @@ def plot_nodes_in_the_interface(submesh_obj,ax=None):
             
             
             plt.scatter(nx,ny)
-
 
 def plot_deformed_subdomain(feti_obj,mult=1.0,ax=None):
     ''' This function plots deformed 2D meshes.
@@ -351,7 +349,6 @@ def plot_deformed_subdomain(feti_obj,mult=1.0,ax=None):
     
     return ax
         
-        
 def plot_domain(domain,ax=None):
     ''' This function plots subdomains 2D meshes.
     Suport the same elements as plot_submesh method
@@ -376,7 +373,6 @@ def plot_domain(domain,ax=None):
             plot_submesh(domain.groups[j],ax, color_id = i)      
     
     return ax   
-
 
 def plot_boundary_1d(mesh_obj,ax=None,linewidth=2):
     ''' This function plot the 1D boundary elements
@@ -488,7 +484,6 @@ def plot_boundary_1d(mesh_obj,ax=None,linewidth=2):
         ax.legend()
     return ax
 
-
 def plot_subdomains(subdomains_dict,a=1.0,ax=None):
     ''' This function plots deformed 2D meshes.
     Suport the same elements as plot_submesh method
@@ -514,7 +509,6 @@ def plot_subdomains(subdomains_dict,a=1.0,ax=None):
             plot_deform_submesh(subi,ax,mult=a) 
     return ax
             
-  
 def plot_deformed_subdomains(subdomains_dict,a=1.0,ax=None):
     ''' This function plots deformed 2D meshes.
     Suport the same elements as plot_submesh method
@@ -587,7 +581,6 @@ def plotDeformMesh(connectivity, nodes, displacement, factor=1, ax = None):
     
     return tri, ax
             
-            
 def plotDeformTriMesh(connectivity, nodes, displacement, factor=1, ax = None):
     ''' This function plots Triagular 2D meshes.
     
@@ -634,7 +627,6 @@ def plotDeformTriMesh(connectivity, nodes, displacement, factor=1, ax = None):
     
     
     return tri, ax           
-    
     
 def plotDeformQuadMesh(connectivity, nodes, displacement, factor=1, ax = None, color_id=None):
     ''' This function plots Triagular 2D meshes.
@@ -690,8 +682,7 @@ def plotDeformQuadMesh(connectivity, nodes, displacement, factor=1, ax = None, c
     
     return p, ax
 
-
-def plot_mesh(mesh_obj,ax=None, boundaries=True):
+def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
     ''' This function plot mesh elements
     
     Argument:
@@ -727,7 +718,6 @@ def plot_mesh(mesh_obj,ax=None, boundaries=True):
     ax.legend()
     return ax   
 
-
 def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
     ''' This function plots Triagular 2D meshes.
     
@@ -750,7 +740,7 @@ def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
     patches = []
     dof = []
 
-    displacement = my_system.u_output[u_id]
+    displacement = my_system.u_output[u_id].real
     node_list = my_system.mesh_class.nodes
     connectivity = my_system.mesh_class.connectivity
     #nodes = my_system.mesh_class.nodes[my_system.assembly_class.node_list]
@@ -903,7 +893,6 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
         ax.legend(handles= legend_handles,fontsize=30)
     return ax
         
-
 def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, interface_nodes=True, scale = 1.0):
     ''' This function add a plot Submesh to a ax
 
@@ -1113,7 +1102,6 @@ def get_quad_faces_from_hexa(hexa_list,surface_only=True):
 
     return quad_list
 
-
 def plot_3D_interface_nodes(nodes_list,node_coord, color=(0,0,0), ax=None):
     ''' This function plots the nodes
     given a list of nodes, the nodes coordinates and 
@@ -1179,6 +1167,17 @@ def plot_3D_displacement(system_obj,factor=1.0, scale=1.0,ax=None, displacement_
 
     ax = plot3Dmesh(local_mesh_class,ax=ax, boundaries=False, scale=scale, **kwargs)
     return ax
+
+def plotmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_nodes=True, scale = 1.0, Label = False):
+    
+    dimension = mesh_obj.no_of_dofs_per_node
+    if dimension==3:
+        plot3Dmesh(mesh_obj,ax=ax, boundaries=boundaries, alpha=alpha, color=color, plot_nodes=plot_nodes, scale = scale, Label = Label)
+    elif dimension==2:
+        plot2Dmesh(mesh_obj,ax=ax, boundaries=boundaries)
+    else:
+        raise('Dimension is not supported')
+
     
 class Plot3DMesh():
     def __init__(self,mesh_obj,ax=None, boundaries=True, displacement_list = None,alpha=0.2, color='grey', 
@@ -1283,6 +1282,12 @@ class Plot3DMesh():
         
         return self.ax
     
+    def set_displacement(self,displacement_list):
+        ''' This function sets the self.displacement variable
+        in order to plot deformed mesh
+        '''
+        self.displacement_list = displacement_list
+        
     def update_displacement(self,displacement,factor=1.0):
 
         nodes = np.copy(self.mesh_obj.nodes)
@@ -1290,7 +1295,6 @@ class Plot3DMesh():
         displacemet_3_ny_m = displacement.reshape((int(ndof/3),3))
         nodes += factor*displacemet_3_ny_m
         return nodes
-
 
     def update_nodes(self,factor=1.0,displacement=None):
 
@@ -1303,7 +1307,6 @@ class Plot3DMesh():
         
         return self.elem_type_polygons[elem_type]
         
-
     def create_3D_polygons(self,points_coord, vertice_matrix):
         ''' This function plots 3D polygonas based on points coordinates and
         matrix with the vertices of the polygons
@@ -1342,3 +1345,17 @@ class Plot3DMesh():
         
         self.polygons = pol
         return self.polygons
+        
+    def set_equal_axis_lim(self,limit_tuple):
+        ''' set equal limits for all 3 axes
+        '''
+        self.ax.set_xlim(limit_tuple)
+        self.ax.set_ylim(limit_tuple)
+        self.ax.set_zlim(limit_tuple)
+        
+#----------------------------------------------------------------------
+# This Function will be deprecated in the Future
+#----------------------------------------------------------------------
+
+# aliasing functions
+plot_mesh = plot2Dmesh

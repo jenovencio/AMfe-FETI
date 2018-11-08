@@ -642,7 +642,7 @@ class Mesh:
         
         
         
-        elem_set = self.get_elem_type()
+        elem_set = self.get_elem_types()
         
         self.no_of_dofs_per_node = 2
         for i in elem_set:
@@ -1232,7 +1232,6 @@ class Mesh:
         print('*'*80)
         return (slave_dofs, row, col, val)
 
-
     def mesh_information(self, mesh_prop='phys_group'):
         '''
         print some information about the mesh that is being imported
@@ -1272,7 +1271,6 @@ class Mesh:
                   pd.unique(df[df[mesh_prop] == i].el_type))
 
         return
-
 
     def set_neumann_bc(self, key, val, direct, time_func=None,
                        shadow_area=False,
@@ -1378,7 +1376,6 @@ class Mesh:
         logging.info('Total number of neumann elements in mesh:' + str(len(self.neumann_obj)))
         logging.info('Total number of elements in mesh:' + str(len(self.ele_obj)))
         logging.info('*************************************************************')
-
 
     def set_dirichlet_bc(self, key, coord, mesh_prop='phys_group',
                          output='internal', id_matrix = None):
@@ -1542,7 +1539,6 @@ class Mesh:
               '\nNumber of nodes in deflated mesh:', np.count_nonzero(mask),
               '\nNumer of deflated nodes:', len(mask) - np.count_nonzero(mask))
         print('**************************************************************')
-
 
     def save_mesh_xdmf(self, filename, field_list=None, bmat=None, u=None, timesteps=None):
         '''
@@ -1760,7 +1756,7 @@ class Mesh:
             self.groups[key] = submesh
             self.__last_tag__ = group_type
 
-    def get_elem_type(self,elem_id_list=None):
+    def get_elem_types(self,elem_id_list=None):
         
         if elem_id_list is not None:
             database = self.el_df.iloc[elem_id_list]
@@ -1769,7 +1765,15 @@ class Mesh:
         
         return set(database['el_type'])
     
-
+    def get_phys_group_types(self,elem_id_list=None):
+        
+        if elem_id_list is not None:
+            database = self.el_df.iloc[elem_id_list]
+        else:
+            database = self.el_df
+        
+        return set(database['phys_group'])
+        
     def get_submesh(self,tag,value):
         ''' This function returns a submeh obj with a subset of the mesh based on tag 
         and value. Also it is possible to specify a direction, which is great for boundary conditions
@@ -1788,7 +1792,6 @@ class Mesh:
         
         except:
             print("Please select a valid key value")
-
 
     def set_domain(self,tag,value):
         ''' This function returns a submeh obj with a subset of the mesh based on tag 
