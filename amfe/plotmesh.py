@@ -718,7 +718,7 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
     ax.legend()
     return ax   
 
-def plot_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1)):
+def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1)):
     ''' This function plots Triagular 2D meshes.
     
     
@@ -1178,10 +1178,28 @@ def plotmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_no
     else:
         raise('Dimension is not supported')
     return ax1
+   
+
+def plot_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1),boundaries=False, alpha=1, color='grey', plot_nodes=False, scale = 1.0, Label = False,collections = []):   
     
+    mesh_obj = my_system.mesh_class
+    dimension = mesh_obj.no_of_dofs_per_node
+    
+    if dimension==3:
+        displacement = my_system.u_output
+        pltmesh = Plot3DMesh(mesh_obj,scale=scale, displacement_list = displacement, ax = ax, alpha=alpha)
+        pltmesh.show(factor=factor,plot_nodes=False,displacement_id=u_id, collections=[])
+        ax1 = pltmesh.ax
+    elif dimension==2:
+        ax1 = plot_2D_system_solution(my_system, factor=factor, ax =ax, u_id = u_id, facecolor=facecolor)
+    else:
+        raise('Dimension is not supported')
+    return ax1
+    
+
 class Plot3DMesh():
     def __init__(self,mesh_obj,ax=None, boundaries=True, displacement_list = None,alpha=0.2, color='grey', 
-                 plot_nodes=True, scale = 1.0, factor =1.0, Label = False, displacement_id=1, **kwargs):
+                 plot_nodes=True, scale = 1.0, factor =1.0, Label = False, displacement_id=1, edgecolor=(0,0,0), linewidth=0.1, **kwargs):
         
         self.mesh_obj = copy.deepcopy(mesh_obj)
         
@@ -1197,7 +1215,10 @@ class Plot3DMesh():
         self.displacement_id = displacement_id
         self.factor = factor
         self.last_scale = None
+        self.edgecolor = edgecolor
+        self.linewidth = linewidth
         self.pre_proc()
+        
         
     def pre_proc(self):
         
@@ -1293,7 +1314,7 @@ class Plot3DMesh():
         nodes = np.copy(self.mesh_obj.nodes)
         ndof = len(displacement)
         displacemet_3_ny_m = displacement.reshape((int(ndof/3),3))
-        nodes += factor*displacemet_3_ny_m
+        nodes += factor*displacemet_3_ny_m.real
         return nodes
 
     def update_nodes(self,factor=1.0,displacement=None):
@@ -1307,7 +1328,7 @@ class Plot3DMesh():
         
         return self.elem_type_polygons[elem_type]
         
-    def create_3D_polygons(self,points_coord, vertice_matrix):
+    def create_3D_polygons(self,points_coord, vertice_matrix, edgecolor = None):
         ''' This function plots 3D polygonas based on points coordinates and
         matrix with the vertices of the polygons
 
@@ -1334,14 +1355,17 @@ class Plot3DMesh():
                 matplotlib Axes3D wich polygon object
         '''
 
-
+        if edgecolor is None:
+            edgecolor = self.edgecolor
+            
         alpha = self.alpha
         color = self.color
         vts = points_coord[vertice_matrix, :]
         pol = a3.art3d.Poly3DCollection(vts)
         pol.set_alpha(alpha)
         pol.set_color(color)
-        pol.set_edgecolor((0,0,0))
+        pol.set_edgecolor(self.edgecolor)
+        pol.set_linewidth(self.linewidth)
         
         self.polygons = pol
         return self.polygons

@@ -1937,7 +1937,11 @@ class Mesh:
         tag_col =  self.el_df.columns.get_loc(tag)
         dict_map = {current_key:new_key}
         key_rows =  self.el_df[self.el_df[tag] == current_key].index
-        return self._replace_dataframe_columns(tag_col,dict_map, key_rows)
+        
+        self._replace_dataframe_columns(tag_col,dict_map, key_rows)
+        self.split_in_groups(tag)
+        
+        return None
 
     def _replace_dataframe_columns(self,list_of_column_index,dict_map, rows = None):
         ''' This function replace values in the self.el_df based on column_index

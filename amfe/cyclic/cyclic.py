@@ -151,6 +151,7 @@ def apply_cyclic_symmetry(M_block,high,low,interior,beta,theta=0,dimension=3):
     ej_beta_minus = np.exp(-1J*beta)
     n_dofs = M_block[low,low].shape[0] 
     #theta=0.0
+    
     T = create_voigt_rotation_matrix(n_dofs, theta, dim=dimension, unit='rad', sparse_matrix = True)
     
     M11 = M_block[high,high] + T.T.dot(M_block[low,low]).dot(T) + ej_beta_plus*M_block[high,low].dot(T) + ej_beta_minus*T.T.dot(M_block[low,high])
@@ -337,11 +338,13 @@ def create_rotated_component(my_comp,selector_operator,sector_id=0, node_id=0, t
             
     return my_comp
     
-    
 def create_voigt_rotation_matrix(n_dofs,alpha_rad, dim=2, unit='rad', sparse_matrix = True):
     ''' This function creates voigt rotation matrix, which is a block
     rotation which can be applied to a voigt displacement vector
     ''' 
+    
+    if n_dofs<=0:
+        raise('Error!!! None dof was select to apply rotation.')
     
     if unit[0:3]=='deg':
         rotation = np.deg2rad(rotation)
@@ -350,6 +353,8 @@ def create_voigt_rotation_matrix(n_dofs,alpha_rad, dim=2, unit='rad', sparse_mat
     R_i = get_unit_rotation_matrix(alpha_rad,dim)  
     
     n_blocks = int(n_dofs/dim)
+    
+    
     if n_blocks*dim != n_dofs:
         raise('Error!!! Rotation matrix is not matching with dimension and dofs.')
     if sparse_matrix:
@@ -392,6 +397,7 @@ class Cyclic_Symmetry_Modal_Analysis():
             direction ='xy'
             print('xy direction choosen for cyclic symmetry')
         elif dimension == 3:
+            #direction ='xyz'
             direction ='xyz'
             print('xyz direction choosen for cyclic symmetry')
         else:
@@ -414,8 +420,8 @@ class Cyclic_Symmetry_Modal_Analysis():
 
 
         superset = OrderedSet(dir_dofs)
-        left_dofs = OrderedSet(get_dofs(cyclic_left, direction =direction, id_matrix=id_matrix)) - superset
-        right_dofs = OrderedSet(get_dofs(cyclic_right, direction =direction, id_matrix=id_matrix)) - superset
+        left_dofs = OrderedSet(get_dofs(cyclic_left, direction = direction, id_matrix=id_matrix)) - superset
+        right_dofs = OrderedSet(get_dofs(cyclic_right, direction = direction, id_matrix=id_matrix)) - superset
 
         boundary_dofs = superset | left_dofs | right_dofs
         interior_dofs = list(OrderedSet(all_dofs) - boundary_dofs)
