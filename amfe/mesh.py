@@ -1910,8 +1910,63 @@ class Mesh:
         new_mesh.nodes = np.array(global_nodes)
         
         return new_mesh
+    
+    def change_tag_in_eldf(self, tag, current_key, new_key):
+        ''' change in pandas dataframe "self.el_df" the physical_id "phys_group" 
+        in domain equal "domain_key" for a new physical key equal new_phys_key
 
+        parameters
+            tag : int or str
+                domain key to modify
 
+           current_key : int or str
+                current physical key to be modified
+            
+            new_key : int or str
+                new physical key
+
+        return 
+            self.el_df : Pandas DataFrame
+                pandas dataframe with mesh information
+        '''
+        
+        if tag not in self.el_df.columns.values:
+            raise('The tag %s does not belong to the element dataframe columns' %str(tag))
+        
+
+        tag_col =  self.el_df.columns.get_loc(tag)
+        dict_map = {current_key:new_key}
+        key_rows =  self.el_df[self.el_df[tag] == current_key].index
+        return self._replace_dataframe_columns(tag_col,dict_map, key_rows)
+
+    def _replace_dataframe_columns(self,list_of_column_index,dict_map, rows = None):
+        ''' This function replace values in the self.el_df based on column_index
+        and old value.
+
+        parameters:
+            column_index : list
+                lsit with number of column index
+            dict_map : dict
+                dict [old_value] = new_value
+                old_value : int or float
+                    old value to be replaced
+                new_value : int or float
+                    new value to replace old value
+
+        return:
+            el_df : pandas dataframe
+                pandas dataframe with new value in column number
+                equal column_index
+
+        '''
+        if rows is None:
+            new_df = self.el_df.iloc[:,list_of_column_index].replace(dict_map)
+            self.el_df.iloc[:,list_of_column_index] = new_df
+        else:
+            new_df = self.el_df.iloc[rows,list_of_column_index].replace(dict_map)
+            self.el_df.iloc[rows,list_of_column_index] = new_df
+
+        return self.el_df
 
 class SubMesh():
     ''' The SubMesh is a class which provides a easy data structure for dealing 

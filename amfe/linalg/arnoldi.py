@@ -373,19 +373,22 @@ class LinearSys():
         return LinearOperator((self.ndof,self.ndof), matvec=self.solve)  
         
 class ProjLinearSys():      
-    def __init__(self,A,M,P,precond=None,linear_solver=None):
+    def __init__(self,A,M,P,precond=None,linear_solver=None,solver_tol=1.0E-10):
         self.A = A
         self.M = M
         self.P = P
         self.precond = precond
+        self.solver_counter = 0
         self.num_iters=0
         self.linear_solver = linear_solver
+        self.solver_tol = solver_tol
         
     def solve(self,b):
         A = self.A
         M = self.M
         P = self.P
         b = np.array(b)
+        self.solver_counter += 1
         #b = b/np.linalg.norm(b)
         b_prime = np.array(P.conj().T.dot(M.dot(P.dot(b)))).flatten()
         #b_prime = b_prime/np.linalg.norm(b_prime)
@@ -394,7 +397,7 @@ class ProjLinearSys():
         #return P.dot(P.dot(sparse.linalg.bicg(A,b_prime,M = self.precond)[0]))
         
         if self.linear_solver==None:
-            return sparse.linalg.cg(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond, callback=self.counter, tol=1.0E-6)[0]
+            return sparse.linalg.cg(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond, callback=self.counter, tol=self.solver_tol)[0]
         else:
             return self.linear_solver(P.conj().T.dot(A.dot(P)),b_prime,M = self.precond, callback=self.counter)[0]
         
@@ -498,7 +501,7 @@ class ProjPrecondLinearSys():
         self.A = A
         self.P = P
         ndof = A.shape[0]
-        
+        self.solver_counter = 0
         if incomplete:
             lu = sparse.linalg.spilu(A, drop_tol=drop_tol, fill_factor=fill_factor)
         else:
@@ -515,7 +518,7 @@ class ProjPrecondLinearSys():
         A_inv = self.A_inv
         u_real = A_inv.dot( (P.dot(b)).real)
         u_imag = A_inv.dot( (P.dot(b)).imag)
-        
+        self.solver_counter += 1
         u = np.zeros(u_real.shape, dtype=np.complex)
         u.real = u_real
         u.astype(np.complex)

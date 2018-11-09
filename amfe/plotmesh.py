@@ -718,7 +718,7 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
     ax.legend()
     return ax   
 
-def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
+def plot_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1)):
     ''' This function plots Triagular 2D meshes.
     
     
@@ -773,7 +773,7 @@ def plot_system_solution(my_system, factor=1, ax = None, u_id = 1):
     ax.autoscale()
     p = PatchCollection(patches)
     p.set_edgecolor('k')
-    p.set_facecolor((1,1,1))
+    p.set_facecolor(facecolor)
     p.set_linewidth(0.5)
     ax.add_collection(p)
     ax.autoscale()
@@ -1172,12 +1172,12 @@ def plotmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_no
     
     dimension = mesh_obj.no_of_dofs_per_node
     if dimension==3:
-        plot3Dmesh(mesh_obj,ax=ax, boundaries=boundaries, alpha=alpha, color=color, plot_nodes=plot_nodes, scale = scale, Label = Label)
+        ax1 = plot3Dmesh(mesh_obj,ax=ax, boundaries=boundaries, alpha=alpha, color=color, plot_nodes=plot_nodes, scale = scale, Label = Label)
     elif dimension==2:
-        plot2Dmesh(mesh_obj,ax=ax, boundaries=boundaries)
+        ax1 = plot2Dmesh(mesh_obj,ax=ax, boundaries=boundaries)
     else:
         raise('Dimension is not supported')
-
+    return ax1
     
 class Plot3DMesh():
     def __init__(self,mesh_obj,ax=None, boundaries=True, displacement_list = None,alpha=0.2, color='grey', 
