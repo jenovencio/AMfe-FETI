@@ -531,11 +531,13 @@ class ProjPrecondLinearSys():
         return LinearOperator((ndof,ndof), matvec=self.solve, dtype=np.complex)  
     
   
-def compute_modes(K,M,num_of_modes=10,which='SM'):
+def compute_modes(K,M,num_of_modes=10,which='LM'):
 
-    eigval, V = sparse.linalg.eigsh(K, k=num_of_modes, M=M,which=which)
-    sort_id = np.argsort(eigval)
-
+    D_obj = LinearSys(K,M)
+    D = D_obj.getLinearOperator()
+    eigval, V = sparse.linalg.eigsh(D, k=num_of_modes, which=which)
+    sort_id = np.argsort(eigval)[::-1]
+    
     eigval= eigval[sort_id]
     V = V[:,sort_id]
-    return eigval,V    
+    return 1.0/eigval,V    

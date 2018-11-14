@@ -8,9 +8,17 @@ import sys
 import os
 
 # getting amfe folder
-path_list = os.path.dirname(__file__).split('\\')[:-1]
-amfe_dir = '\\'.join(path_list)
-sys.path.append(amfe_dir)
+if sys.platform[:3]=='win':
+    path_list = os.path.dirname(__file__).split('\\')[:-1]
+    amfe_dir = '\\'.join(path_list)
+    sys.path.append(amfe_dir)
+elif sys.platform[:3]=='lin':
+    path_list = os.path.dirname(__file__).split('/')[:-1]
+    amfe_dir = '/'.join(path_list)
+    sys.path.append(amfe_dir)
+else :
+    raise('Plataform %s is not supported  ' %sys.platform)
+    
 
 from linalg.arnoldi import compute_modes
 from contact import Contact, Cyclic_Contact
@@ -21,6 +29,11 @@ import numpy as np
 import copy
 import unittest
 import collections
+import logging
+
+
+#setting logging level
+#logging.basicConfig(level=logging.DEBUG)
 
 class SelectionOperator():
     def __init__(self,selection_dict,id_matrix=None):
@@ -65,9 +78,9 @@ class SelectionOperator():
         
         '''
         ndof = len(local_indexes)
-        P = sparse.csc_matrix((ndof, ndof), dtype=np.int8)
+        P = sparse.lil_matrix((ndof, ndof), dtype=np.int8)
         P[local_indexes, np.arange(ndof)] = 1
-        return P.T
+        return P.T.tocsc()
         
     def create_block_matrix(self,M):
         ''' This function create block matrix with string
@@ -151,6 +164,8 @@ def apply_cyclic_symmetry(M_block,high,low,interior,beta,theta=0,dimension=3):
     ej_beta_minus = np.exp(-1J*beta)
     n_dofs = M_block[low,low].shape[0] 
     #theta=0.0
+    logging.debug('Number of Low dofs %i' %n_dofs) 
+    logging.debug('Number of High dofs %i' %M_block[high,high].shape[0]) 
     
     T = create_voigt_rotation_matrix(n_dofs, theta, dim=dimension, unit='rad', sparse_matrix = True)
     

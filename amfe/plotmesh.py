@@ -183,6 +183,7 @@ def plot_submesh_obj(submesh_obj,ax=None, color_id=0):
     y_tri = []
     lines_counter = 0
     p = None
+    
     try:
         submesh_obj.parent_mesh.elements_type_dict = submesh_obj.parent_mesh.el_df['el_type'].to_dict()  
         elem_start_index = submesh_obj.parent_mesh.node_idx
@@ -716,7 +717,7 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
     #print(leg.legendHandles)
     #leg.legendHandles[-1].set_facecolor('yellow')
     ax.legend()
-    return ax   
+    return ax  
 
 def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1)):
     ''' This function plots Triagular 2D meshes.
@@ -893,7 +894,7 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
         ax.legend(handles= legend_handles,fontsize=30)
     return ax
         
-def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, interface_nodes=True, scale = 1.0):
+def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, interface_nodes=True, scale = 1.0,linewidth=None):
     ''' This function add a plot Submesh to a ax
 
     argument 
@@ -932,19 +933,19 @@ def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, in
     if elem_type in Tri_D_elem_list:
         if elem_type=='Tet4':
             connect = get_triangule_faces_from_tetrahedral(connect)
-            ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+            ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,linewidth=linewidth)
         
         elif elem_type=='Hexa20':
             connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
-            ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+            ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes, linewidth=linewidth)
         
         elif elem_type=='Hexa8':
                     connect = get_quad_faces_from_hexa(np.array(connect))
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes, linewidth=linewidth)
         else:
             raise('Type of element = %s not support by this method.' %elem_type)
     elif elem_type in Two_D_elem_list:
-        ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+        ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes, linewidth=linewidth)
     else:
         print('Type of element = %s not support by this method.' %elem_type)
         
@@ -974,7 +975,7 @@ def plot3D_submesh(submesh,ax=None, alpha=0.2, color='grey', plot_nodes=True, in
             
     return ax
 
-def plot_3D_polygon(points_coord, vertice_matrix, ax=None, alpha=0.2, color='grey', plot_nodes=True):
+def plot_3D_polygon(points_coord, vertice_matrix, ax=None, alpha=0.2, color='grey', plot_nodes=True,linewidth=None):
     ''' This function plots 3D polygonas based on points coordinates and
     matrix with the vertices of the polygons
 
@@ -1010,6 +1011,7 @@ def plot_3D_polygon(points_coord, vertice_matrix, ax=None, alpha=0.2, color='gre
     pol.set_alpha(alpha)
     pol.set_color(color)
     pol.set_edgecolor((0,0,0))
+    pol.set_linewidth(linewidth)
     ax.add_collection3d(pol)
     if plot_nodes:
         nodes_in_elem = set(np.array(vertice_matrix).reshape(-1))
@@ -1038,10 +1040,16 @@ def get_triangule_faces_from_tetrahedral(tetrahedron_list,surface_only=True):
     tri =[]
     for Tet in tetrahedron_list:
         for i,j,k in itertools.combinations([0,1,2,3], 3):
-            tri.append([Tet[i],Tet[j],Tet[k]])
+            #tri.append([Tet[i],Tet[j],Tet[k]])
+            temp_list = [Tet[i],Tet[j],Tet[k]] 
+            temp_list.sort()
+            tri.append(temp_list)
+    
+    #print('All triangles %i' %len(tri))
     
     unique_tri_list = list(np.unique(tri,axis=0))
-
+    #print('Only unique triangles %i' %len(unique_tri_list))
+    
     if surface_only:
         surface_tri = []
         for unique_tri in unique_tri_list:
@@ -1049,7 +1057,8 @@ def get_triangule_faces_from_tetrahedral(tetrahedron_list,surface_only=True):
             if num_of_occurances==1:
                 surface_tri.append(unique_tri)
         tri_list = surface_tri
-        
+        #print('Surface triangles %i' %len(tri_list))
+
     else:
         tri_list = unique_tri_list
 
@@ -1203,7 +1212,11 @@ class Plot3DMesh():
         
         self.mesh_obj = copy.deepcopy(mesh_obj)
         
-        self.ax=ax
+      
+        if ax is None:
+            self.ax = a3.Axes3D(plt.figure()) 
+        else:
+            self.ax = ax
         
         self.boundaries = boundaries
         self.alpha =alpha
@@ -1239,7 +1252,7 @@ class Plot3DMesh():
             
             elem_type = elem_list_type[0]
             try:
-                connect = mesh_obj.groups[key].get_submesh_connectivity()
+                connect = copy.deepcopy(mesh_obj.groups[key].get_submesh_connectivity())
                 if elem_type in Tri_D_elem_list:
                     if elem_type=='Tet4':
                         connect = get_triangule_faces_from_tetrahedral(connect)
@@ -1262,11 +1275,18 @@ class Plot3DMesh():
             except:
                 print('Element in mesh is not supported.')
         
-    def show(self,factor=1.0,displacement_id=1,scale=None,plot_nodes=True, collections=[],ax=None):
+    def show(self,factor=1.0,displacement_id=1,scale=None,plot_nodes=None, collections=[],ax=None):
+        
+        
+        if ax is not None:
+            self.ax = ax
         
         if scale is not None:
             self.scale = scale
 
+        if plot_nodes is None:
+            plot_nodes = self.plot_nodes
+            
         if self.last_scale is not None:
             if self.scale!=self.last_scale: 
                 self.mesh_obj.nodes = self.mesh_obj.nodes*self.scale
@@ -1284,11 +1304,7 @@ class Plot3DMesh():
         
         points_coord = self.mesh_obj.nodes
         
-        if ax is None:
-            if self.ax is None:
-                self.ax = a3.Axes3D(plt.figure()) 
-        else:
-            self.ax = ax
+        
                 
         #restart collection
         self.ax.collections = collections
