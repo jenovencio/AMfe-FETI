@@ -352,18 +352,29 @@ def power_iteration(A, b =None, max_nint=100,tol=1e-10):
     return b_k
     
 class LinearSys():
-    def __init__(self,A,M):
+    def __init__(self,A,M,alg='splu'):
         self.A = A
         self.M = M
         self.ndof = self.A.shape[0]
+        self.alg =alg
+        self.lu = None
+        if self.alg=='splu':
+            self.lu = sparse.linalg.splu(A)
         
     def solve(self,b):
         A = self.A
         M = self.M
         b = np.array(b)
         b_prime = np.array(M.dot(b)).flatten()
-        return sparse.linalg.cg(A,b_prime)[0]
-    
+        if self.alg=='splu':
+            x = self.lu.solve(b_prime)
+        elif self.alg=='cg':
+            x = sparse.linalg.cg(A,b_prime)[0]
+        else:
+            raise('Algorithm &s not supported' %self.alg)
+            
+        return x
+        
     def normM(self,b):
         M = self.M
         b_prime = np.array(M.dot(b)).flatten()
@@ -531,13 +542,19 @@ class ProjPrecondLinearSys():
         return LinearOperator((ndof,ndof), matvec=self.solve, dtype=np.complex)  
     
   
-def compute_modes(K,M,num_of_modes=10,which='LM'):
+def compute_modes(K,M,num_of_modes=10,which='LM',mass_normalized=True):
 
     D_obj = LinearSys(K,M)
     D = D_obj.getLinearOperator()
-    eigval, V = sparse.linalg.eigsh(D, k=num_of_modes, which=which)
+    eigval, V = sparse.linalg.eigs(D, k=num_of_modes, which=which)
     sort_id = np.argsort(eigval)[::-1]
     
     eigval= eigval[sort_id]
     V = V[:,sort_id]
-    return 1.0/eigval,V    
+    
+    if mass_normalized: 
+        omega_2 = np.diag(V.T.dot(K.dot(V)))/np.diag(V.T.dot(M.dot(V)))
+    else:   
+        omega_2 = 1.0/eigval
+    
+    return np.sqrt(omega_2),V    

@@ -25,7 +25,8 @@ abaq2amfe = {'C3D10' : 'Tet10',
              'CONN3D2' : None,
              'S4B'  : 'Quad4Boundary',
              'S4'  : 'Quad4',
-             'S3'  : 'Tri3'}
+             'S3'  : 'Tri3',
+             'STRI65' : 'Tri6'}
              
              
 
