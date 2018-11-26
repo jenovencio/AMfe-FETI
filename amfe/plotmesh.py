@@ -719,7 +719,7 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
     ax.legend()
     return ax  
 
-def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1)):
+def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1),highlight_nodes=[]):
     ''' This function plots Triagular 2D meshes.
     
     
@@ -746,7 +746,7 @@ def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(
     connectivity = my_system.mesh_class.connectivity
     #nodes = my_system.mesh_class.nodes[my_system.assembly_class.node_list]
     nodes = node_list
-    
+    highlight_nodes_coord = []
     elem_dofs = my_system.assembly_class.mesh.no_of_dofs_per_node
     elem_nodes = []
     for i,node in enumerate(nodes):
@@ -764,6 +764,8 @@ def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(
         for node in elem:
             dof_id = my_system.assembly_class.id_matrix[node]
             node_coord.append(dof[dof_id])
+            if node in highlight_nodes:
+                highlight_nodes_coord.append(dof[dof_id])
         polygon = Polygon(node_coord, True)
         patches.append(polygon)
 
@@ -771,6 +773,8 @@ def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(
         fig = plt.figure()
         ax = plt.axes() 
         
+    if highlight_nodes:
+        ax.plot(np.array(highlight_nodes_coord).T[0],np.array(highlight_nodes_coord).T[1],'yo')
     ax.autoscale()
     p = PatchCollection(patches)
     p.set_edgecolor('k')

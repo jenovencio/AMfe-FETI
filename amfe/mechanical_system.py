@@ -604,7 +604,22 @@ class MechanicalSystem():
 
         self.solver.solve()
         return
+    
+    def get_dofs(self, submesh_obj, direction='xyz'):
+        ''' Return the dofs associate to a given submesh
+        
+        parameters:
+            submesh_obj : amfe.SubMesh
+                submesh object with nodes and element of dirichlet
+            direction : str
+                direction to consirer 'xyz'
+        
+        return 
+            dofs : list
+                list of dofs positions
+    '''
 
+        return get_dofs(submesh_obj, direction=direction, id_matrix=self.assembly_class.id_matrix)
 
 class MechanicalSystemStateSpace(MechanicalSystem):
     def __init__(self, regular_matrix=None, **kwargs):

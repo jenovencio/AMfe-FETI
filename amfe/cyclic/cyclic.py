@@ -47,6 +47,9 @@ class SelectionOperator():
         
         '''
         self.selection_dict = selection_dict
+        self.all_keys_set = OrderedSet(self.selection_dict.keys())
+        self.removed_keys = OrderedSet()
+        self.red_dof_dict = None
         self.local_indexes = []
         self.bounds = {}
         self.length = {}
@@ -54,6 +57,7 @@ class SelectionOperator():
         self.global_to_local_dof_dict = {} 
         self.global_id_matrix = id_matrix
         
+
         count = 0
         local_dof_counter = 0
         for key, dof_list in selection_dict.items():
@@ -66,6 +70,7 @@ class SelectionOperator():
                 self.local_to_global_dof_dict[local_dof_counter] = value
                 self.global_to_local_dof_dict[value] = local_dof_counter
                 local_dof_counter += 1
+        
         
         self.P = self.create_permutation_matrix(self.local_indexes)
         self.ndof = max(self.P.shape)
@@ -93,6 +98,13 @@ class SelectionOperator():
         
         return block_matrix
         
+    def create_block_vector(self,f):
+        block_vector = {}
+        for key1, dofs_1 in self.selection_dict.items():
+            block_vector[key1] = f[dofs_1]
+        
+        return block_vector
+    
     def assemble_matrix(self,M,list_of_strings):
         ''' This method assemble a matrix based on the list of string
         useful for ordering the matrix according to the block string matrix
@@ -114,6 +126,10 @@ class SelectionOperator():
             
             
         '''
+        
+
+        self.create_reduced_selector(list_of_strings)
+        
         M_block = self.create_block_matrix(M)
         
         M_rows = []
@@ -124,9 +140,47 @@ class SelectionOperator():
             M_rows.append(sparse.hstack(M_row_j_list))
         
         return sparse.vstack(M_rows).tocsc()
+          
+    def assemble_vector(self,f,list_of_strings):
+        ''' This method assemble a vector based on the list of string
+        useful for ordering the matrix according to the block string matrix
+        paramenter:
+            M : np.array
+                1-d array to be reordered
             
+            list of strings : list
+                list with a sequence of string which gives the 
+                order of the degrees of freedom associated with M11
+            
+            return a ordered Matrix
+            
+            
+        '''
+        
+        f_block = self.create_block_vector(f)
+        
+        f_rows = np.array([])
+        for s_i in list_of_strings:
+            f_rows = np.append(f_rows, f_block[s_i])
+        
+        return f_rows
+        
     def select_block(self,M,rows,columns):
         pass
+    
+    def create_reduced_selector(self,list_of_strings):
+        
+        self.removed_keys =  self.all_keys_set - list_of_strings # copy list with all keys
+        self.red_dof_dict = collections.OrderedDict()
+        init_dof = 0
+        for key in list_of_strings:
+            last_dof = init_dof + len(self.selection_dict[key])
+            self.red_dof_dict[key] = np.arange(init_dof,last_dof) 
+            init_dof = last_dof
+        
+        self.reduced_selector = SelectionOperator(self.red_dof_dict,self.global_id_matrix)
+        
+    
     
     def build_B(self,label):
         ''' Build Boolean selection operator
