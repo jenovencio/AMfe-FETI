@@ -151,7 +151,10 @@ def real_array_to_complex(v_real):
     return v_real[:m] + 1J*v_real[m:]
 
 def complex_array_to_real(v_complex):
-     return np.concatenate([ v_complex.real,  v_complex.imag])  
+    if v_complex.shape:
+        return np.concatenate([ v_complex.real,  v_complex.imag])  
+    else:
+        return np.array([ v_complex.real,  v_complex.imag])  
 
 def complex_matrix_to_real_block(M_complex,sparse_matrix=True):
     ''' this function converts a complex matrix with format
@@ -186,14 +189,43 @@ def complex_matrix_to_real_block(M_complex,sparse_matrix=True):
     else:
         return M_block.toarray()
 
-def complex_derivative(fun):
-    pass
+def complex_derivative(fun,n=1):
 
-def complex_jacobian(fun):
-    pass
+    fun_real = lambda x_real : complex_array_to_real(fun(x_real[0]+1J*x_real[1]))
+    gradient_real = nd.Jacobian(fun_real,n=n)
+    return lambda x : gradient_real(np.array([x.real,x.imag]))[0].dot([1,-1J])
+  
+def complex_jacobian(fun,n=1):
+    
+    fun_real = lambda x_real : complex_array_to_real(fun(real_array_to_complex(x_real)))
+    gradient_real = nd.Jacobian(fun_real,n=n)
+    return lambda x : real_block_matrix_to_complex(gradient_real(complex_array_to_real(x)).T)
 
 def complex_hessian(fun):
-    pass
+    ''' This function computes the Hessian matrix of
+    a complex function which maps complex vector of size n
+    into the complex plane 
+    fun : C^n -> C
+
+    Paramenters:
+    --------
+        fun : callable
+            function which maps complex vector of size n
+            into the complex plane 
+    Returns:
+    --------
+        hess : callable
+            complex Hessian matrix 
+    '''
+    
+    fun_real = lambda x_real : fun(real_array_to_complex(x_real)).real
+    fun_imag = lambda x_real : fun(real_array_to_complex(x_real)).imag
+
+    Hessian_real = nd.Hessian(fun_real)
+    Hessian_imag = nd.Hessian(fun_imag)
+
+    return lambda x : (real_block_matrix_to_complex(Hessian_real(complex_array_to_real(x))) + \
+                        1J*real_block_matrix_to_complex(Hessian_imag(complex_array_to_real(x)))).T
 
 def striu_from_vector(v,n):
     '''convert a vector in to a sparse
@@ -627,7 +659,6 @@ class  Test_root(TestCase):
 
         f_prime2 = self.f_prime2
 
-
         hessp2 = lambda x, p : Z.conj().T.dot(Z).dot(p)
 
         x0 = np.ones(2,dtype=np.complex)
@@ -647,6 +678,59 @@ class  Test_root(TestCase):
          abs_dif = abs(Z - Z_).flatten()
 
          np.testing.assert_array_almost_equal( abs_dif, np.zeros(len(abs_dif)),  decimal=10 )
+
+    def test_complex_derivative(self):
+
+        fun = lambda x : np.exp(x)
+        dfun = complex_derivative(fun)
+
+        val_list = [0,1,np.pi]
+
+        for x in val_list:
+            for y in val_list:
+                z = x + 1J*y
+                dval = dfun(z)        
+                dtarget = np.exp(x)*(np.cos(y) + 1J*np.sin(y))
+        
+                np.testing.assert_array_almost_equal(dval, dtarget,  decimal=10 )
+
+    def test_complex_jacobian(self):
+        Z = self.Z
+        f = self.f
+        x_sol = np.linalg.solve(Z,f)
+        
+        R = lambda x : Z.dot(x) - f
+       
+        x0 = np.ones(2,dtype=np.complex)
+        jfun = complex_jacobian(R)
+        jval = jfun(x0)
+
+        np.testing.assert_array_almost_equal(jval.flatten(), Z.flatten(),  decimal=10 )
+
+    def test_complex_hessian(self):
+        
+        Z = self.Z
+        f = self.f
+        x_sol = np.linalg.solve(Z,f)
+        
+        R = lambda x : Z.dot(x) - f
+        fun = lambda x : R(x).conj().T.dot(R(x))
+        H_target = 2*Z.conj().T.dot(Z)
+
+        x0 = np.ones(2,dtype=np.complex)
+        jfun = complex_hessian(fun)
+        jval = jfun(x0)
+
+        np.testing.assert_array_almost_equal(jval.flatten(), H_target.flatten(),  decimal=10 )
+
+    def test_scalar_root(self):
+
+        r = lambda x : (x-1.0)*(x-10)*(x-100)
+        x0 = np.array(0.0)
+        opt_obj = root(r,x0)
+        x_opt = opt_obj.x 
+
+        np.testing.assert_array_almost_equal(np.array(1.0), x_opt ,  decimal=10 )
 
 if __name__ == '__main__':
     main()
