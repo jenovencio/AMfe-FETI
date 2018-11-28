@@ -4,6 +4,7 @@ from unittest import TestCase, main
 from scipy.misc import derivative
 from scipy.sparse.linalg import LinearOperator
 import numdifftools as nd
+import copy
 
 def func_wrapper(fun,x0_aug_real):
     ''' This function is a wrapper function for
@@ -28,7 +29,7 @@ def func_wrapper(fun,x0_aug_real):
     x0_imag = x0_aug_real[int(n/2):]
     x0 = x0_real + 1J*x0_imag
     fun_aug_real = fun(x0)
-    return np.concatenate([ fun_aug_real.real,  fun_aug_real.imag])
+    return complex_array_to_real(fun_aug_real)
 
 def hessp_wrapper(fun,x0_aug_real,p_aug_real):
     ''' This function is a wrapper function for
@@ -357,8 +358,131 @@ def fsolve(func, x0, args=(), fprime=None, full_output=0, col_deriv=0, xtol=1.49
         return  optimize.fsolve(func, x0, args=args, fprime=fprime, full_output=full_output, col_deriv=col_deriv, xtol=xtol, maxfev=maxfev, band=band, epsfcn=epsfcn, factor=factor, diag=diag)
         
     
-    
 
+def continuation(fun,x0,p_range,jac=None,step=1.0,max_int=500,tol=1.0E-6,correction_method='moore_penrose'):
+    ''' This function applies a continuation technique
+    in the fun(x,p) which 
+
+    Parameters:
+    ------------
+        fun : callable
+            callable function with two parameters x and p
+        x0 : np.array
+            initial guess for the initial point
+        p_range : tuple 
+            tuple with lower and upper limit for the p parameter
+
+    
+    '''
+
+    y_list = [] # store coverged points
+
+    if not isinstance(x0, np.ndarray):
+        x0 = np.array([x0])
+
+    x_size = len(x0)
+    p_size = 1
+
+    Fx = lambda p : lambda x : fun(x,p)
+    Fp = lambda x : lambda p : fun(x,p)
+
+    if jac is None:
+        if  x0.dtype== 'complex':
+            JFx = lambda p : complex_jacobian(Fx(p))
+            JFp = lambda x : complex_jacobian(Fp(x))
+        else:
+            JFx = lambda p : nd.Jacobian(Fx(p))
+            JFp = lambda x : nd.Jacobian(Fp(x))
+    else:
+        raise('Jacobian not supported')
+
+    #build jacobian aprox. where y = [x,p]
+    #hx = lambda x, p : JFx(p)(x)
+    #hp = lambda x, p : JFp(x)(p)
+    hx = lambda y : JFx(y[-1])(y[:-1])
+    hp = lambda y : JFp(y[:-1])(y[-1])
+    fun_norm = lambda y : np.linalg.norm(fun(y[:-1],y[-1]))
+
+    # building G, Gy, and R matrix for correction phase
+    # see referece https://doi.org/10.1016/j.cma.2015.07.017
+    Gy = lambda y, v : np.vstack((np.hstack((hx(y),hp(y).T)),v))
+    G = lambda y, v : np.concatenate((fun(y[:-1],y[-1]),np.array([0])))
+    R = lambda y, v : np.vstack((np.hstack((hx(y),hp(y).T)),0.0*v))
+
+    # find initial fixed point for continuation
+    p0 = p_range[0]
+
+    opt_obj = root(Fx(p0),x0=x0,method='lm')
+    x0_opt = opt_obj.x
+    y0 = np.concatenate([x0_opt,np.array([p0])])
+    y_list.append(y0)
+
+    # finding tagent vector t:
+    t0 = np.ones(x_size+p_size)
+    b = np.zeros(x_size+p_size)
+    b[-1] = 1
+    v0 = np.linalg.solve(Gy(y0,t0),b)
+
+    # find a predictor 
+    y_pred = y0 + step*v0
+    
+    for i in range(max_int):
+        # corrector algotirhm
+        y,v,error_norm, error_list, success = corrector(fun,y_pred,v0,G,Gy,R,b,max_int=50,tol=tol,correction_method=correction_method)
+        
+        if success:
+            #v0 = np.linalg.solve(Gy(y,v),b)
+            # find a predictor 
+            y_pred = y + step*v
+            y0 = y
+            v0 = v
+            y_list.append(y0)
+
+        else:
+            step = 0.5*step
+            y = y0 + step*v0
+
+    return np.array(y_list)
+        
+
+def corrector(fun,y0,v0,G,Gy,R,b,max_int=10,tol=1.0E-6, correction_method='moore_penrose'):
+
+    fun_norm = lambda y : np.linalg.norm(fun(y[:-1],y[-1]))
+    y = y0 
+    v = v0
+    success = False
+    error_list = []
+    for i in range(max_int):
+        error_norm = fun_norm(y)
+        error_list.append(error_norm)
+        if error_norm<tol:
+            success = True
+            break
+
+        if correction_method == 'moore_penrose':
+            Gy_eval = Gy(y,v)
+            try:
+                v = np.linalg.solve(Gy_eval ,b)
+            except:
+                G_inv = np.linalg.pinv(Gy_eval)
+                v = G_inv.dot(b)
+        else:
+
+            Gy_eval = Gy(y,v)
+            R_eval = R(y,v)
+            delta_v = np.linalg.solve(Gy_eval,R_eval)
+            v -= delta_v
+        
+        G_eval = G(y,v)
+        try:
+            delta_y = np.linalg.solve(Gy_eval,G_eval)
+        except:
+            
+            delta_y = G_inv.dot(G_eval)
+
+        y -= delta_y
+
+    return y,v,error_norm, error_list, success
 
 
 class  Test_root(TestCase):
@@ -731,6 +855,34 @@ class  Test_root(TestCase):
         x_opt = opt_obj.x 
 
         np.testing.assert_array_almost_equal(np.array(1.0), x_opt ,  decimal=10 )
+
+    def test_ellipse_continuation(self):
+
+        xc = 4
+        yc = 2
+        r2 = 200
+        A = np.array([[10.,-5.8],
+                      [-5.8,5.]])
+
+        v = lambda x, p : np.array([(p-xc),(x-yc)])
+        paraboloid = lambda x, p : np.array([v(x,p).T.dot(A).dot(v(x,p)) - r2])
+
+        #continuation(paraboloid,x0=4.0,p_range=(0,10))
+
+    def test_spiral(self):
+        a1, b1 = 0, 0.5
+        w = 2
+        xs = lambda s : (a1 + b1*s)*np.cos(w*s)
+        ys = lambda s : (a1 + b1*s)*np.sin(w*s)               
+        spiral = lambda s : (xs(s),ys(s)) 
+        spiral_res = lambda x, y, s : (x - (a1 + b1*s)*np.cos(w*s))**2 + (y - (a1 + b1*s)*np.sin(w*s) )**2 
+        #spiral_res_vec = lambda x, s : spiral_res(x[0],x[1],s)
+
+        spiral_res_vec = lambda x, s : np.array([(x[0] - (a1 + b1*s)*np.cos(w*s)), (x[1] - (a1 + b1*s)*np.sin(w*s))]) 
+
+        x0=np.array([0.0,0.0])
+
+        ys_list = continuation(spiral_res_vec,x0=x0,p_range=(0.0,10.0))
 
 if __name__ == '__main__':
     main()
