@@ -357,9 +357,7 @@ def fsolve(func, x0, args=(), fprime=None, full_output=0, col_deriv=0, xtol=1.49
     else:
         return  optimize.fsolve(func, x0, args=args, fprime=fprime, full_output=full_output, col_deriv=col_deriv, xtol=xtol, maxfev=maxfev, band=band, epsfcn=epsfcn, factor=factor, diag=diag)
         
-    
-
-def continuation(fun,x0,p_range,jac=None,step=1.0,max_int=500,tol=1.0E-6,correction_method='moore_penrose'):
+def continuation(fun,x0,p_range,p0=None, jac=None,step=1.0,max_int=500,max_int_corr=50,tol=1.0E-6,max_dp=1.0,correction_method='moore_penrose'):
     ''' This function applies a continuation technique
     in the fun(x,p) which 
 
@@ -376,9 +374,14 @@ def continuation(fun,x0,p_range,jac=None,step=1.0,max_int=500,tol=1.0E-6,correct
     '''
 
     y_list = [] # store coverged points
+    info_dict = {} # store algorithm infos
 
     if not isinstance(x0, np.ndarray):
         x0 = np.array([x0])
+
+    if p0 is None:
+        p0 = p_range[0]
+
 
     x_size = len(x0)
     p_size = 1
@@ -389,13 +392,14 @@ def continuation(fun,x0,p_range,jac=None,step=1.0,max_int=500,tol=1.0E-6,correct
     if jac is None:
         if  x0.dtype== 'complex':
             JFx = lambda p : complex_jacobian(Fx(p))
-            JFp = lambda x : complex_jacobian(Fp(x))
+            #JFp = lambda x : complex_jacobian(Fp(x))
         else:
             JFx = lambda p : nd.Jacobian(Fx(p))
             JFp = lambda x : nd.Jacobian(Fp(x))
     else:
         raise('Jacobian not supported')
 
+    JFp = lambda x : nd.Jacobian(Fp(x))
     #build jacobian aprox. where y = [x,p]
     #hx = lambda x, p : JFx(p)(x)
     #hp = lambda x, p : JFp(x)(p)
@@ -410,8 +414,6 @@ def continuation(fun,x0,p_range,jac=None,step=1.0,max_int=500,tol=1.0E-6,correct
     R = lambda y, v : np.vstack((np.hstack((hx(y),hp(y).T)),0.0*v))
 
     # find initial fixed point for continuation
-    p0 = p_range[0]
-
     opt_obj = root(Fx(p0),x0=x0,method='lm')
     x0_opt = opt_obj.x
     y0 = np.concatenate([x0_opt,np.array([p0])])
@@ -425,24 +427,35 @@ def continuation(fun,x0,p_range,jac=None,step=1.0,max_int=500,tol=1.0E-6,correct
 
     # find a predictor 
     y_pred = y0 + step*v0
-    
+    last_p = p0
+    default_step = step
     for i in range(max_int):
         # corrector algotirhm
-        y,v,error_norm, error_list, success = corrector(fun,y_pred,v0,G,Gy,R,b,max_int=50,tol=tol,correction_method=correction_method)
-        
-        if success:
-            #v0 = np.linalg.solve(Gy(y,v),b)
-            # find a predictor 
+        y,v,error_norm, error_list, success = corrector(fun,y_pred,v0,G,Gy,R,b,max_int=max_int_corr,tol=tol,correction_method=correction_method)
+        p = y[-1] 
+        dp = np.abs(p - last_p)
+
+        if success and (dp<=max_dp):
+            # find a new predictor 
             y_pred = y + step*v
+            
+            # update variables for next iteration
             y0 = y
             v0 = v
+            last_p = p
             y_list.append(y0)
+            step = default_step
+            if p>=p_range[1] or p<=p_range[0] :
+                print('Continuation algorithm has reached the limits of paramenter range')
+                break
 
         else:
+            # reducing the correction step
             step = 0.5*step
-            y = y0 + step*v0
-
-    return np.array(y_list)
+            y_pred = y0 + step*v0
+    
+    y_array = np.array(y_list) 
+    return y_array.T[0:-1],y_array.T[-1], info_dict 
         
 
 def corrector(fun,y0,v0,G,Gy,R,b,max_int=10,tol=1.0E-6, correction_method='moore_penrose'):
@@ -865,9 +878,13 @@ class  Test_root(TestCase):
                       [-5.8,5.]])
 
         v = lambda x, p : np.array([(p-xc),(x-yc)])
-        paraboloid = lambda x, p : np.array([v(x,p).T.dot(A).dot(v(x,p)) - r2])
+        paraboloid_vec = lambda x, p : np.array([v(x,p).T.dot(A).dot(v(x,p)) - r2])
 
-        #continuation(paraboloid,x0=4.0,p_range=(0,10))
+        ye_list, pe_list, info_dict = continuation(paraboloid_vec,x0=3,p_range=(-15,15),p0=0.0,step=1)
+        
+        r = np.array(list(map(paraboloid_vec,ye_list[0], pe_list))).flatten()
+        np.testing.assert_array_almost_equal( 0.0*r,  r ,  decimal=6 )
+
 
     def test_spiral(self):
         a1, b1 = 0, 0.5
@@ -882,7 +899,13 @@ class  Test_root(TestCase):
 
         x0=np.array([0.0,0.0])
 
-        ys_list = continuation(spiral_res_vec,x0=x0,p_range=(0.0,10.0))
+        x_sol, p_sol, info_dict = continuation(spiral_res_vec,x0=x0,p_range=(-10.0,10.0),p0=0.0,max_dp=0.1)
+
+        x_target = np.array(list(map(xs,p_sol)))
+        y_target = np.array(list(map(ys,p_sol)))
+
+        np.testing.assert_array_almost_equal(x_target, x_sol[0] ,  decimal=6 )
+        np.testing.assert_array_almost_equal(y_target, x_sol[1] ,  decimal=6 )
 
 if __name__ == '__main__':
     main()
