@@ -343,9 +343,14 @@ def create_Z_matrix(K,C,M,f0=1.0,nH=1, static=True, complex_data= False):
     num_of_freq = len(freq_list)
     
     # Z = K (x) I + wj (x) C - w2 (x) M
-    Z = sparse.kron(np.diag([1]*num_of_freq),K) + \
+    if sparse.issparse(K):
+        Z = sparse.kron(np.diag([1]*num_of_freq),K) + \
         sparse.kron(1J*np.diag(freq_list),C) - \
         sparse.kron(np.diag(freq_list)**2,M)
+    else:
+        Z = np.kron(np.diag([1]*num_of_freq),K) + \
+        np.kron(1J*np.diag(freq_list),C) - \
+        np.kron(np.diag(freq_list)**2,M)
     
     #for w_i in freq_list:
     #    Z_i = K + 1J*w_i*C - w_i*w_i*M
@@ -396,7 +401,7 @@ def hbm_freq(f0,number_of_harm=1,static=False,complex_data=False):
     return freq_list
     
     
-def hbm_complex_bases(f0,number_of_harm=1,n_points=100,static=True,complex_data=False):
+def hbm_complex_bases(f0,number_of_harm=1,n_points=100,static=True,complex_data=False,normalized=True):
     ''' create a harmonic bases [1, exp(jw0t), exp(j2w0t), ...., exp(j(number_of_harm)w0t)]
     
      Parameters:
@@ -429,10 +434,12 @@ def hbm_complex_bases(f0,number_of_harm=1,n_points=100,static=True,complex_data=
     x = np.linspace(t0,T,n_points)
     freq_list = hbm_freq(f0,number_of_harm=number_of_harm,complex_data=complex_data,static=static)
     
-    if complex_data:
+    if normalized:
         mult = 1.0
+        
     else:
         mult =np.sqrt(2.0)
+        
     
     nH = len(freq_list)
     phi_dynamic = np.zeros([n_points,nH],dtype=np.complex)

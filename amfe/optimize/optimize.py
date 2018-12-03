@@ -6,7 +6,24 @@ from scipy.sparse.linalg import LinearOperator
 import numdifftools as nd
 import copy
 
-def func_wrapper(fun,x0_aug_real):
+import sys
+import os
+
+# getting amfe folder
+if sys.platform[:3]=='win':
+    path_list = os.path.dirname(__file__).split('\\')[:-1]
+    amfe_dir = '\\'.join(path_list)
+    sys.path.append(amfe_dir)
+elif sys.platform[:3]=='lin':
+    path_list = os.path.dirname(__file__).split('/')[:-1]
+    amfe_dir = '/'.join(path_list)
+    sys.path.append(amfe_dir)
+else :
+    raise('Plataform %s is not supported  ' %sys.platform)
+
+from amfe.frequency_module.frequency import cos_bases_for_MHBM, create_Z_matrix, linear_harmonic_force, hbm_complex_bases
+
+def func_wrapper(fun,x0_aug_real,extra_arg=None):
     ''' This function is a wrapper function for
     complex value function. The paramenter x0_aug_real
     is a augmented real numpy array with n/2 real array and
@@ -18,7 +35,9 @@ def func_wrapper(fun,x0_aug_real):
             complex function which return a complex array
         x0_aug_real : np.array
             real array with 2m length
-            
+        extra_arg : np.array
+            real array with extra function parameters 
+            (real paramenters in the original function )
     Returns 
     --------
         fun_aug_real : np.array
@@ -28,7 +47,11 @@ def func_wrapper(fun,x0_aug_real):
     x0_real = x0_aug_real[0:int(n/2)]
     x0_imag = x0_aug_real[int(n/2):]
     x0 = x0_real + 1J*x0_imag
-    fun_aug_real = fun(x0)
+    if extra_arg is None:
+        fun_aug_real = fun(x0)
+    else:
+        fun_aug_real = fun(x0,extra_arg)
+
     return complex_array_to_real(fun_aug_real)
 
 def hessp_wrapper(fun,x0_aug_real,p_aug_real):
@@ -235,7 +258,6 @@ def striu_from_vector(v,n):
     indices = np.triu_indices(n)
     return sparse.csc_matrix((v, indices))
 
-
 def root(fun, x0, args=(), method='hybr', jac=None, tol=None, callback=None, options=None):
     ''' This function is a wrapper for scipy.optimize.root which 
     deals with complex functions
@@ -382,42 +404,44 @@ def continuation(fun,x0,p_range,p0=None, jac=None,step=1.0,max_int=500,max_int_c
     if p0 is None:
         p0 = p_range[0]
 
+    # converting complex function to real, due to a mix of real and complex varialbles
+    if x0.dtype == 'complex':
+        fun_real = lambda x, p : func_wrapper(fun, x, p)
+        x0_real = complex_array_to_real(x0)
+    else:
+        fun_real = fun
+        x0_real = x0
 
-    x_size = len(x0)
+    res = Result_Obj(x0.dtype)
+    x_size = len(x0_real)
     p_size = 1
-
-    Fx = lambda p : lambda x : fun(x,p)
-    Fp = lambda x : lambda p : fun(x,p)
+    # creating parametric functions
+    Fx = lambda p : lambda x : fun_real(x,p)
+    Fp = lambda x : lambda p : fun_real(x,p)
 
     if jac is None:
-        if  x0.dtype== 'complex':
-            JFx = lambda p : complex_jacobian(Fx(p))
-            #JFp = lambda x : complex_jacobian(Fp(x))
-        else:
-            JFx = lambda p : nd.Jacobian(Fx(p))
-            JFp = lambda x : nd.Jacobian(Fp(x))
+        JFx = lambda p : nd.Jacobian(Fx(p))
+        JFp = lambda x : nd.Jacobian(Fp(x))
     else:
         raise('Jacobian not supported')
 
-    JFp = lambda x : nd.Jacobian(Fp(x))
     #build jacobian aprox. where y = [x,p]
-    #hx = lambda x, p : JFx(p)(x)
-    #hp = lambda x, p : JFp(x)(p)
     hx = lambda y : JFx(y[-1])(y[:-1])
     hp = lambda y : JFp(y[:-1])(y[-1])
-    fun_norm = lambda y : np.linalg.norm(fun(y[:-1],y[-1]))
+    fun_norm = lambda y : np.linalg.norm(fun_real(y[:-1],y[-1]))
 
     # building G, Gy, and R matrix for correction phase
     # see referece https://doi.org/10.1016/j.cma.2015.07.017
     Gy = lambda y, v : np.vstack((np.hstack((hx(y),hp(y).T)),v))
-    G = lambda y, v : np.concatenate((fun(y[:-1],y[-1]),np.array([0])))
+    G = lambda y, v : np.concatenate((fun_real(y[:-1],y[-1]),np.array([0])))
     R = lambda y, v : np.vstack((np.hstack((hx(y),hp(y).T)),0.0*v))
 
     # find initial fixed point for continuation
-    opt_obj = root(Fx(p0),x0=x0,method='lm')
+    opt_obj = root(Fx(p0),x0=x0_real,method='lm')
     x0_opt = opt_obj.x
     y0 = np.concatenate([x0_opt,np.array([p0])])
-    y_list.append(y0)
+    #y_list.append(np.concatenate([real_array_to_complex(y0[:-1]),np.array([y0[-1]])]))
+    res.append(y0)
 
     # finding tagent vector t:
     t0 = np.ones(x_size+p_size)
@@ -431,7 +455,7 @@ def continuation(fun,x0,p_range,p0=None, jac=None,step=1.0,max_int=500,max_int_c
     default_step = step
     for i in range(max_int):
         # corrector algotirhm
-        y,v,error_norm, error_list, success = corrector(fun,y_pred,v0,G,Gy,R,b,max_int=max_int_corr,tol=tol,correction_method=correction_method)
+        y,v,error_norm, error_list, success = corrector(fun_real,y_pred,v0,G,Gy,R,b,max_int=max_int_corr,tol=tol,correction_method=correction_method)
         p = y[-1] 
         dp = np.abs(p - last_p)
 
@@ -443,7 +467,8 @@ def continuation(fun,x0,p_range,p0=None, jac=None,step=1.0,max_int=500,max_int_c
             y0 = y
             v0 = v
             last_p = p
-            y_list.append(y0)
+            #y_list.append(np.concatenate([real_array_to_complex(y0[:-1]),np.array([y0[-1]])]))
+            res.append(y0)
             step = default_step
             if p>=p_range[1] or p<=p_range[0] :
                 print('Continuation algorithm has reached the limits of paramenter range')
@@ -454,9 +479,30 @@ def continuation(fun,x0,p_range,p0=None, jac=None,step=1.0,max_int=500,max_int_c
             step = 0.5*step
             y_pred = y0 + step*v0
     
-    y_array = np.array(y_list) 
+    y_array = np.array(res.get_results()) 
     return y_array.T[0:-1],y_array.T[-1], info_dict 
         
+
+class Result_Obj():
+
+    def __init__(self, dtype=np.float):
+        self.res = []
+        self.dtype = dtype
+
+    def append(self,y,dtype=None):
+        if dtype is None:
+            dtype = self.dtype
+
+        if dtype==np.float or dtype==np.int:
+            self.res.append(y)
+        elif dtype==np.complex:
+            self.res.append(np.concatenate([real_array_to_complex(y[:-1]),np.array([y[-1]])]))
+        else:
+            print('dtype = %s' %str(dtype))
+            raise('dtype is not supported')
+
+    def get_results(self):
+        return self.res
 
 def corrector(fun,y0,v0,G,Gy,R,b,max_int=10,tol=1.0E-6, correction_method='moore_penrose'):
 
@@ -490,10 +536,10 @@ def corrector(fun,y0,v0,G,Gy,R,b,max_int=10,tol=1.0E-6, correction_method='moore
         try:
             delta_y = np.linalg.solve(Gy_eval,G_eval)
         except:
-            
             delta_y = G_inv.dot(G_eval)
 
         y -= delta_y
+        #y[-1] = y[-1].real
 
     return y,v,error_norm, error_list, success
 
@@ -880,7 +926,7 @@ class  Test_root(TestCase):
         v = lambda x, p : np.array([(p-xc),(x-yc)])
         paraboloid_vec = lambda x, p : np.array([v(x,p).T.dot(A).dot(v(x,p)) - r2])
 
-        ye_list, pe_list, info_dict = continuation(paraboloid_vec,x0=3,p_range=(-15,15),p0=0.0,step=1)
+        ye_list, pe_list, info_dict = continuation(paraboloid_vec,x0=3.0,p_range=(-15,15),p0=0.0,step=1)
         
         r = np.array(list(map(paraboloid_vec,ye_list[0], pe_list))).flatten()
         np.testing.assert_array_almost_equal( 0.0*r,  r ,  decimal=6 )
@@ -906,6 +952,47 @@ class  Test_root(TestCase):
 
         np.testing.assert_array_almost_equal(x_target, x_sol[0] ,  decimal=6 )
         np.testing.assert_array_almost_equal(y_target, x_sol[1] ,  decimal=6 )
+
+    def test_3d_spiral(self):
+        z = lambda p : p 
+        r = lambda p : (p-8)**2 + 1
+        x = lambda p : r(p) * np.sin(p)
+        y = lambda p : r(p) * np.cos(p)
+        spiral3d = lambda xvec, p : np.array([xvec[0] - x(p),xvec[1] - y(p),xvec[2] - z(p)])
+
+        x0=np.array([0.0,0.0,0.0])
+        x_sol, p_sol, indo_dict = continuation(spiral3d,x0=x0,p_range=(0,20.0),p0=0,max_int=1000,max_dp=2)
+
+        x_target = np.array(list(map(x,p_sol)))
+        y_target = np.array(list(map(y,p_sol)))
+        z_target = np.array(list(map(z,p_sol)))
+
+        np.testing.assert_array_almost_equal(x_target, x_sol[0] ,  decimal=6 )
+        np.testing.assert_array_almost_equal(y_target, x_sol[1] ,  decimal=6 )
+        np.testing.assert_array_almost_equal(z_target, x_sol[2] ,  decimal=6 )
+
+    def test_duffing(self):
+        nH = 2
+        B = hbm_complex_bases(1,number_of_harm=nH,n_points=50,static=False,normalized=False)
+        P = 0.1
+        beta = 1.0
+        M = 1.0
+        K = 1.0
+        C = 0.08
+
+        fnl = lambda u : beta*(u**3)
+        fl = linear_harmonic_force(P, f0 = 1, n_points=50, cos=True)
+        fl_ = B.conj().T.dot(fl)
+        fnl_ = lambda u_ : B.conj().T.dot(fnl(B.dot(u_).real)) - fl_
+        Z = lambda w :create_Z_matrix(K,C,M,f0= w/(2.0*np.pi),nH=nH, static=False)
+        #Z = lambda w: np.array([-(w)**2*M + 1J*(w)*C + K]) 
+        R = lambda u_, w : Z(w).dot(u_) + fnl_(u_)
+
+        x0 = np.array([0]*nH,dtype=np.complex)
+        y_d, p_d, indo_dict = continuation(R,x0=x0,p_range=(0.01,3.5), p0=0.1, max_int=400, max_dp=0.2,step=0.2, max_int_corr=20, tol=1.0E-10)
+
+        calc_error = np.array(list(map(R,y_d.T,p_d))).flatten()
+        np.testing.assert_array_almost_equal(calc_error, 0.0*calc_error ,  decimal=9 )
 
 if __name__ == '__main__':
     main()
