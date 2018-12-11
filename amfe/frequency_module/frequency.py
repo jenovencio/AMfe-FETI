@@ -3,6 +3,26 @@ import scipy.linalg as la
 import matplotlib.pyplot as plt
 from scipy import sparse
 
+from unittest import TestCase, main
+from numpy.testing import assert_array_equal
+
+import sys
+import os
+
+# getting amfe folder
+if sys.platform[:3]=='win':
+    path_list = os.path.dirname(__file__).split('\\')[:-1]
+    amfe_dir = '\\'.join(path_list)
+    sys.path.append(amfe_dir)
+elif sys.platform[:3]=='lin':
+    path_list = os.path.dirname(__file__).split('/')[:-1]
+    amfe_dir = '/'.join(path_list)
+    sys.path.append(amfe_dir)
+else :
+    raise('Plataform %s is not supported  ' %sys.platform)
+
+from operators.operators import HBMOperator, ReshapeOperator     
+
 def harmonic_bases(x,freq=[1]):
     ''' create a harmonic bases [1, sin(w_i*x), cos(w_i*x)]
     given a frequency list
@@ -334,7 +354,6 @@ def create_freq_list(T,dt=1,get_time=False):
         return freq_list
 
         
-
 def create_Z_matrix(K,C,M,f0=1.0,nH=1, static=True, complex_data= False):
     
     #Z_list = []
@@ -417,6 +436,8 @@ def hbm_complex_bases(f0,number_of_harm=1,n_points=100,static=True,complex_data=
         complex_data : Boolean, default=False
             create negative frequencies to represent complex data.
             This function only work with static mode is True.
+        normalized : Boolean, default=False
+            Define if bases are orthonormal or not
             
     Returns
     -------
@@ -450,6 +471,46 @@ def hbm_complex_bases(f0,number_of_harm=1,n_points=100,static=True,complex_data=
             
     return mult*np.array(phi_dynamic)/np.sqrt(n_points)    
     
+
+def assemble_hbm_operator(ndofs,f0=1,number_of_harm=1,n_points=100,static=True,complex_data=False,normalized=True):
+    ''' create a harmonic bases [1, exp(jw0t), exp(j2w0t), ...., exp(j(number_of_harm)w0t)]
+    
+     Parameters:
+    ----------
+        ndofs : int
+            number of dofs for the multidimensional bases
+        
+        f0 : float : default = 1.0
+            primary frequency for the harmonic balance
+        number_of_harm: int, default=1
+            number of harmonic to be considered
+        n_points: int, default=100
+            number of points to the harmonic bases
+        static : Boolean, default=False
+            create a 0 frequency for the static mode representation
+        complex_data : Boolean, default=False
+            create negative frequencies to represent complex data.
+            This function only work with static mode is True.
+        normalized : Boolean, default=False
+            Define if bases are orthonormal or not
+    Returns
+    -------
+        Q : HBMOperator
+            Truncated Fourier Multidimensional operator 
+            the size of the bases is 1 + 2*n_harm
+            where n_harm is the size of freq list
+    
+    '''
+    
+    q = hbm_complex_bases(f0=f0,number_of_harm=number_of_harm,
+                          n_points=n_points,static=static,complex_data=complex_data,normalized=normalized)
+
+    Q = HBMOperator(ndofs,q)
+
+    return Q
+
+
+ 
 def linear_harmonic_force(a, f0 = 1, n_points=100, cos=True):
     t0 = 0
     two_pi = 2.0*np.pi
@@ -490,3 +551,88 @@ def duffing_force_in_freq(B,beta=1,power=3):
     f_ = lambda u_ :  B.conj().T.dot(beta*(u_in_time(u_)**power))
     
     return f_    
+
+
+
+class  Test_Operators(TestCase):
+    def setUp(self):
+        pass
+
+    def test_build_hbm_operator(self):
+
+        amplitude_dof_1 = 5.0
+        amplitude_dof_2 = 0.0
+        P = np.array([amplitude_dof_1, amplitude_dof_2], dtype = np.complex)
+        beta = 5.0
+        m1 = 1.0
+        m2 = m1
+        k1 = 1.0
+        k2 = k1
+        c1 = 0.05
+        c2 = c1
+
+        K = np.array([[k1+k2, -k2],
+                      [-k2,k2+k1]])
+
+        M = np.array([[m1,0.0],
+                      [0.0,m2]])
+
+        C = np.array([[c1+c2,-c2],
+                      [-c2,c1+c2]])
+
+        B_delta = np.array([[-1, 1],
+                            [-1, 1]])
+
+        H = np.array([[-1, 0],
+                      [ 0, 1]])
+
+
+        ndofs = 2
+        nH = 5
+        n_points = 2000
+
+        q = hbm_complex_bases(1,number_of_harm=nH,n_points=n_points,static=False,normalized=False)
+        Ro = ReshapeOperator(ndofs,n_points)
+        Qp = assemble_hbm_operator(ndofs,f0=1,number_of_harm=nH ,n_points=n_points,static=False,complex_data=False,normalized=False)
+
+        I = np.eye(ndofs)
+        I_harm = np.eye(nH)
+        Q = np.kron(I,q[:,0])
+        for i in range(1,nH):
+            Q = np.concatenate([Q,np.kron(I,q[:,i])])
+        Q = Q.T
+        Tc = H.dot(B_delta)
+
+        self.assertAlmostEqual(abs(Qp.Q.toarray() - Q).max(), 0.0, places=12)
+
+        P_aug = list(0*P)*nH
+        P_aug[0:ndofs] = list(P)
+        P_aug = np.array(P_aug)
+        fl = Q.dot(P_aug).real
+
+
+        
+
+        fnl = lambda u : beta*(Tc.dot(u)**3)
+        
+        fnl_ = lambda u_ : Q.conj().T.dot(Ro.T.dot(fnl(Ro.dot(Q.dot(u_).real)))) 
+        new_fnl_ = lambda u_ : Qp.H.dot(fnl(Qp.dot(u_))) 
+
+        u_ = 100.0*np.random.rand(ndofs*nH*2)
+        u_.dtype = np.complex
+
+        u_desired = Ro.dot(Q.dot(u_).real)
+        u_actual = Qp.dot(u_)
+
+        np.testing.assert_array_almost_equal(u_actual, u_desired ,  decimal=12 )
+
+        fnl_desired = fnl_(u_)
+        fnl_actual = new_fnl_(u_)
+
+        np.testing.assert_array_almost_equal(fnl_actual, fnl_desired ,  decimal=10)
+
+
+if __name__ == '__main__':
+    main()    
+    #test_obj = Test_Operators()
+    #test_obj.test_build_hbm_operator()

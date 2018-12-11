@@ -25,6 +25,8 @@ amfe.egg-info/
 experiments/paper_icoev
 .idea/
 .spyproject/
+.vs/
+__pycache__/
 
 # specific files to ignore
 amfe/fortran/f90_elementmodule.c
