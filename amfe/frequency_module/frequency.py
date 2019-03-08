@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from scipy import sparse
 
 from unittest import TestCase, main
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_array_equal, assert_array_almost_equal
 
 import sys
 import os
@@ -21,7 +21,7 @@ elif sys.platform[:3]=='lin':
 else :
     raise('Plataform %s is not supported  ' %sys.platform)
 
-from operators.operators import HBMOperator, ReshapeOperator     
+from amfe.operators.operators import HBMOperator, ReshapeOperator     
 
 def harmonic_bases(x,freq=[1]):
     ''' create a harmonic bases [1, sin(w_i*x), cos(w_i*x)]
@@ -472,7 +472,7 @@ def hbm_complex_bases(f0,number_of_harm=1,n_points=100,static=True,complex_data=
     return mult*np.array(phi_dynamic)/np.sqrt(n_points)    
     
 
-def assemble_hbm_operator(ndofs,f0=1,number_of_harm=1,n_points=100,static=True,complex_data=False,normalized=True):
+def assemble_HBMOperator(ndofs,f0=1,number_of_harm=1,n_points=100,static=False,complex_data=False,normalized=False):
     ''' create a harmonic bases [1, exp(jw0t), exp(j2w0t), ...., exp(j(number_of_harm)w0t)]
     
      Parameters:
@@ -632,7 +632,55 @@ class  Test_Operators(TestCase):
         np.testing.assert_array_almost_equal(fnl_actual, fnl_desired ,  decimal=10)
 
 
+    def test_HBMOperator(self,plot_res=False):
+
+        ndofs = 2
+        nH = 6
+        n_points = 10000
+
+        Q = assemble_hbm_operator(ndofs,number_of_harm=nH ,n_points=n_points)
+
+        self.assertEqual(Q,Q.T.T)
+
+        T = 2.0*np.pi
+        coef = np.array([[10,0],
+                         [0,3],
+                         [0,1]])
+        
+        freq_list = [1.0,3.0,5.0]
+            
+        def func(t):
+            fval = 0
+            for i,f in enumerate(freq_list):
+                fval += np.sum(coef[i].dot([np.cos(2.0*np.pi*f*t),np.sin(2.0*np.pi*f*t)]))
+            return fval
+
+        time_list = np.linspace(0,1,n_points)
+        f_list = np.array(list(map(func,time_list)))
+        f_desired = np.array([f_list]*ndofs)
+        f_actual = Q.dot(Q.H.dot(f_desired))
+
+        if plot_res:
+            plt.plot(f_list,'b',label='target')
+            plt.plot(f_actual[0],'r--',label='computed')
+            plt.legend()
+            plt.show()
+
+        error = np.linalg.norm(f_actual - f_desired)/n_points
+        assert_array_almost_equal(f_actual/n_points,f_desired/n_points,decimal=6)
+
+        u_ = np.random.rand(ndofs*nH*2)
+        u_.dtype = np.complex
+        u_actual = Q.H.dot(Q.dot(u_))
+        assert_array_almost_equal(u_actual,u_,decimal=3)
+
+
+
+#aliasing for future compatibilite
+assemble_hbm_operator = assemble_HBMOperator
+
 if __name__ == '__main__':
     main()    
     #test_obj = Test_Operators()
     #test_obj.test_build_hbm_operator()
+    #test_obj.test_HBMOperator()

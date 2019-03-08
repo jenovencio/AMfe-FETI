@@ -718,8 +718,47 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
     #leg.legendHandles[-1].set_facecolor('yellow')
     ax.legend()
     return ax  
+    
+def plot2Dcyclicmesh(mesh_obj,nsectors, ax=None, boundaries=True):
+    
+    if ax == None:
+        fig = plt.figure()
+        ax = plt.axes() 
+    
+    m = mesh_obj
+    theta = 360/nsectors
+    for i in range(nsectors):
+        m1 = m.rot_z(i*theta) 
+        ax = plot2Dmesh(m1,ax=ax)
 
-def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1),highlight_nodes=[]):
+    return ax
+    
+def plot2Dnodes(mesh_obj,ax=None,plot_nodeid=False,fonte=12,color='red'):
+    ''' This function plot the nodes of a mesh
+    
+    Argument:
+        mesh_obj: amfe mesh instance
+        ax: matplotlib Axes
+    
+    return 
+        ax: matplotlib Axes
+
+    '''     
+
+    if ax == None:
+        ax = plt.axes() 
+    
+
+    ax.plot(mesh_obj.nodes.T[0],mesh_obj.nodes.T[1],'o')
+    
+    if plot_nodeid:
+        for i, coord in enumerate(mesh_obj.nodes):
+            ax.text(coord[0],coord[1], str(i), color=color, fontsize=fonte)
+            
+
+    return ax  
+
+def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1),highlight_nodes=[],linewidth=0.5):
     ''' This function plots Triagular 2D meshes.
     
     
@@ -779,7 +818,7 @@ def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(
     p = PatchCollection(patches)
     p.set_edgecolor('k')
     p.set_facecolor(facecolor)
-    p.set_linewidth(0.5)
+    p.set_linewidth(linewidth)
     ax.add_collection(p)
     ax.autoscale()
     patches.clear()
@@ -1193,7 +1232,7 @@ def plotmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_no
     return ax1
    
 
-def plot_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1),boundaries=False, alpha=1, color='grey', plot_nodes=False, scale = 1.0, Label = False,collections = []):   
+def plot_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1),boundaries=False, alpha=1, color='grey', plot_nodes=False, scale = 1.0, Label = False,collections = [],linewidth=0.5):   
     
     mesh_obj = my_system.mesh_class
     dimension = mesh_obj.no_of_dofs_per_node
@@ -1204,7 +1243,7 @@ def plot_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1
         pltmesh.show(factor=factor,plot_nodes=False,displacement_id=u_id, collections=[])
         ax1 = pltmesh.ax
     elif dimension==2:
-        ax1 = plot_2D_system_solution(my_system, factor=factor, ax =ax, u_id = u_id, facecolor=facecolor)
+        ax1 = plot_2D_system_solution(my_system, factor=factor, ax =ax, u_id = u_id, facecolor=facecolor,linewidth=linewidth )
     else:
         raise('Dimension is not supported')
     return ax1

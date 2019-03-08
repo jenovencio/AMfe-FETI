@@ -22,7 +22,7 @@ elif sys.platform[:3]=='lin':
 else :
     raise('Plataform %s is not supported  ' %sys.platform)
 
-from amfe.frequency_module.frequency import cos_bases_for_MHBM, create_Z_matrix, linear_harmonic_force, hbm_complex_bases
+from amfe.frequency_module.frequency import cos_bases_for_MHBM, create_Z_matrix, linear_harmonic_force, hbm_complex_bases, assemble_hbm_operator
 from amfe.operators.operators import ReshapeOperator
 
 def func_wrapper(fun,x0_aug_real,extra_arg=None):
@@ -467,7 +467,7 @@ def continuation(fun,x0,p_range,p0=None, jacx=None, jacp=None ,step=1.0,max_int=
     # finding tagent vector t:
     t0 = np.ones(x_size+p_size)
     b = np.zeros(x_size+p_size)
-    b[-1] = 1
+    b[-1] = 1.0
     v0 = np.linalg.solve(Gy(y0,t0),b)
 
     # find a predictor 
@@ -1362,6 +1362,62 @@ class  Test_root(TestCase):
         calc_error = np.array(list(map(R,y_d.T,p_d))).flatten()
         np.testing.assert_array_almost_equal(calc_error, 0.0*calc_error ,  decimal=9 )
 
+    def test_continuation_analytical_jac(self):
+        #HBM variables
+        nH = 2
+        n_points = 2000
+        n_dofs = 2
+
+        # case variables
+        amplitude_dof_1 = 5.0
+        amplitude_dof_2 = 0.0
+        P = np.array([amplitude_dof_1, amplitude_dof_2], dtype = np.complex)
+        beta = 5.0
+        m1 = 1.0
+        m2 = m1
+        k1 = 1.0
+        k2 = k1
+        c1 = 0.05
+        c2 = c1
+
+        K = np.array([[k1+k2, -k2],
+                      [-k2,k2+k1]])
+
+        M = np.array([[m1,0.0],
+                      [0.0,m2]])
+
+        C = np.array([[c1+c2,-c2],
+                      [-c2,c1+c2]])
+
+        B_delta = np.array([[-1, 1],
+                            [-1, 1]])
+
+        H = np.array([[-1, 0],
+                      [ 0, 1]])
+
+        Q = assemble_hbm_operator(n_dofs,number_of_harm=nH ,n_points=n_points)
+        Tc = H.dot(B_delta)
+        Ro = ReshapeOperator(n_dofs,n_points)
+
+        P_aug = list(0*P)*nH
+        P_aug[0:n_dofs] = list(P)
+        P_aug = np.array(P_aug)
+
+        fl = Q.dot(P_aug).real
+        fl_ = Q.H.dot(fl) # force in frequency domain
+        fnl = lambda u : beta*(Tc.dot(u)**3)
+        Jfnl = lambda u : np.diag(Ro.T.dot(3*beta*(Tc.dot(u)**2)))
+        #Jfnl_ = lambda u_ : Q.H.Q.dot(Jfnl(Q.dot(u_))).dot(Q.Q)
+        Jfnl_ = lambda w : lambda u_ : Q.H.Q.toarray().dot(Jfnl(Q.dot(u_))).dot(Q.Q.toarray())
+        fnl_ = lambda u_ : Q.H.dot(fnl(Q.dot(u_))) - fl_
+        Z = lambda w : create_Z_matrix(K,C,M,f0= w/(2.0*np.pi),nH=nH, static=False)
+        R = lambda u_, w : Z(w).dot(u_) + fnl_(u_)
+        JRu = lambda w : lambda u_ : Z(w) + Q.H.Q.toarray().dot(Jfnl(Q.dot(u_))).dot(Q.Q.toarray())
+        x0 = np.array([0.0]*n_dofs*nH,dtype=np.complex)
+        y_d, p_d, info_dict = continuation(R,x0=x0,p_range=(0.01,3.0), p0=0.1, correction_method='matcont', jacx=JRu,
+                                            max_int=2000, max_dp=0.05,step=0.1, max_int_corr=50, tol=1.0E-10)
+
+
 
     def implicit_continuation(self):
         # case constants
@@ -1465,6 +1521,7 @@ if __name__ == '__main__':
     #main()
     
     test_obj = Test_root()
-    test_obj.test_2dof_duffing()
+    #test_obj.test_2dof_duffing()
+    test_obj.test_continuation_analytical_jac()
     #test_obj.test_implicit_continuation()
     #test_obj.test_2dof_duffing_fixed_parameter_corrector()

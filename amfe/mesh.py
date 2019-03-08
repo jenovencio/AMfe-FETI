@@ -651,7 +651,9 @@ class Mesh:
         
         if self.no_of_dofs_per_node ==2:
             print('WARNING! 2D case were selected')
-        
+            if self.nodes.shape[1]!=self.no_of_dofs_per_node:
+                self.nodes = self.nodes[:,:self.no_of_dofs_per_node]
+            
         if self.no_of_dofs_per_node ==3:
             print('WARNING! 3D case were selected')
             

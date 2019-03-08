@@ -87,6 +87,8 @@ class HBMOperator():
         self.shape = (ndofs,self.npoints,self.nH*self.ndofs)
         self._build_Q(ndofs,q)
         self.Ro = ReshapeOperator(self.ndofs,self.npoints)
+        self.HBM_obj = HBMOperator_(self.Q,self.Ro)
+        self.adjoint = HBMOperatorAdjoint_(self.Q.conj(),self.Ro, self)
         
     def _build_Q(self,ndofs,q):
         I = sparse.eye(ndofs)
@@ -96,7 +98,7 @@ class HBMOperator():
         self.Q = Q.T
         
     def _matvec(self,u_):
-        return self.Ro.dot(self.Q.dot(u_).real)
+        return self.HBM_obj._matvec(u_)
         
     def _transpose(self):
         return HBMOperatorTranspose_(self.Q,self.Ro, self)
@@ -105,18 +107,20 @@ class HBMOperator():
         return HBMOperator_(self.Q.conj(),self.Ro)
     
     def _adjoint(self):
-        return  self._transpose().conj()
+        return  self.adjoint
 
     @property
     def T(self):
         return self._transpose()
-    
+        
     @property
     def H(self):
         return self._adjoint()
     
     def dot(self,u_):
         return self._matvec(u_)
+
+    
 
 class HBMOperator_():
     def __init__(self,Q,Ro):
@@ -126,7 +130,7 @@ class HBMOperator_():
         self.ndofs, self.npoints, total_dof = Ro.shape
         total_dof, nH_x_ndofs = Q.shape
         self.nH = int(nH_x_ndofs/self.ndofs)
-        
+        self.transpose = None
     
     @property
     def shape(self):
@@ -134,19 +138,23 @@ class HBMOperator_():
 
     def _matvec(self,u_):
         return self.Ro.dot(self.Q.dot(u_).real)
-        
-    def _transpose(self):
-        return None
     
-    def conj():
-        return HBMOperator_(self.Q.conj(),self.Ro)
+    def _transpose(self):
+        return self.transpose
+
+    def conj(self):
+        None
 
     def _adjoint(self):
         return self._transpose.conj()
 
     @property
     def T(self):
-        return self._transpose
+        T = self._transpose()
+        if T is None:
+            return self
+        else:
+            return T
     
     @property
     def H(self):
@@ -156,12 +164,14 @@ class HBMOperator_():
         return self._matvec(u_)
 
 class HBMOperatorTranspose_(HBMOperator_):
-    def __init__(self,Q,Ro,HBM_obj):
+    def __init__(self,Q,Ro,transpose = None):
         super(HBMOperatorTranspose_,self).__init__(Q,Ro)
-        self.HBM_obj = HBM_obj
+        
         self.Q = self.Q.T
         self.Ro = self.Ro.T
-        
+        self.transpose = transpose
+        self._conj = None
+
     @property
     def shape(self):
         return (self.nH*self.ndofs,self.npoints,self.ndofs)
@@ -170,10 +180,37 @@ class HBMOperatorTranspose_(HBMOperator_):
         return self.Q.dot(self.Ro.dot(u))
 
     def _transpose(self):
-        return self.HBM_obj
+        return self.transpose
     
     def conj(self):
-       return HBMOperatorTranspose_(self.Q.T.conj(),self.Ro.T,self.HBM_obj)
+       return None
+
+class HBMOperatorAdjoint_(HBMOperator_):
+    def __init__(self,Q,Ro, adjoint = None):
+        super(HBMOperatorAdjoint_,self).__init__(Q,Ro)
+        
+        self.Q = self.Q.T
+        self.Ro = self.Ro.T
+        self.adjoint = adjoint
+        self._conj = None
+
+    @property
+    def shape(self):
+        return (self.nH*self.ndofs,self.npoints,self.ndofs)
+
+    def _matvec(self,u):
+        return self.Q.dot(self.Ro.dot(u))
+
+    def _transpose(self):
+        return None
+    
+    def conj(self):
+       return None
+
+    def _adjoint(self):
+       return self.adjoint
+
+
 
 
 class HBMOperator_conj_():
@@ -184,76 +221,8 @@ class HBMOperator_conj_():
     def _matvec(self,u):
         return self.Q.T.dot(self.Ro.T.dot(u))
 
-class HBMOperator_conj():
-    def __init__(self,HBMOperator_obj,conj=False):
-        self.HBMOperator_obj = HBMOperator_obj
-        self.Ro = HBMOperator_obj.Ro
-        self.Q = HBMOperator_obj.Q.conj()
-        self.ndofs = HBMOperator_obj.ndofs
-        self.nH = HBMOperator_obj.nH
-        self.npoints = HBMOperator_obj.points
-                
-    def _matvec(self,u):
-        return self.Q.T.dot(self.Ro.T.dot(u))
-        
-    def _transpose(self):
-        return self.HBMOperator_obj
-    
-    def conj():
-        _matvec = lambda u : self.Q.conj().T.dot(self.Ro.T.dot(u))
-        return _matvec
 
-    def _adjoint(self):
-        return self._transpose.conj()
-
-    @property
-    def T(self):
-        return _transpose
-    
-    @property
-    def H(self):
-        return _adjoint
-    
-    def dot(self,u_):
-        return self._matvec(u_)
-   
-class HBMOperatorTranspose():
-    def __init__(self,HBMOperator_obj,conj=False):
-        self.HBMOperator_obj = HBMOperator_obj
-        self.Ro = HBMOperator_obj.Ro
-        if conj:
-            self.Q = HBMOperator_obj.Q.conj()
-        else:
-            self.Q = HBMOperator_obj.Q
-        self.ndofs = HBMOperator_obj.ndofs
-        self.nH = HBMOperator_obj.nH
-        self.npoints = HBMOperator_obj.points
-                
-    def _matvec(self,u):
-        return self.Q.T.dot(self.Ro.T.dot(u))
-        
-    def _transpose(self):
-        return self.HBMOperator_obj
-    
-    def conj():
-        _matvec = lambda u : self.Q.conj().T.dot(self.Ro.T.dot(u))
-        return _matvec
-
-    def _adjoint(self):
-        return self._transpose.conj()
-
-    @property
-    def T(self):
-        return _transpose
-    
-    @property
-    def H(self):
-        return _adjoint
-    
-    def dot(self,u_):
-        return self._matvec(u_)
-
-        
+     
 class SelectionOperator():
     def __init__(self,selection_dict,id_matrix=None):
         ''' the selection dict contain labels as key and 
@@ -275,7 +244,7 @@ class SelectionOperator():
         self.local_to_global_dof_dict = {} 
         self.global_to_local_dof_dict = {} 
         self.global_id_matrix = id_matrix
-        
+        self.removed_dict_values = {}
 
         count = 0
         local_dof_counter = 0
@@ -345,10 +314,12 @@ class SelectionOperator():
             
             
         '''
-        
-
         self.create_reduced_selector(list_of_strings)
         
+        for key in self.removed_keys:
+            print('Removing dofs related to label %s. Setting dof values equal to 0' %key)
+            self.removed_dict_values[key] = np.zeros(len(self.selection_dict[key]))
+
         M_block = self.create_block_matrix(M)
         
         M_rows = []
@@ -415,7 +386,69 @@ class SelectionOperator():
         local_id = self.selection_dict[label]
         B = sparse.csc_matrix((len(local_id), self.ndof), dtype=np.int8)
         B[np.arange(len(local_id)), local_id ] = 1
-        return B            
+        return B     
+    
+    def assemble_global_vector(self,u):
+        ''' This function assembles the global vector 
+        based on the solution of the reduced system based on 
+        the assemble_block_matrix
+
+        Parameters:
+            u : np.array
+                solution of the reduced system
+
+        return :
+            np.array
+                solution of the global system
+        '''
+
+        u_global = np.array([])
+        for key,values in self.removed_dict_values.items():
+            u_global = np.concatenate((u_global, values))
+            
+        for key, values_id in self.reduced_selector.selection_dict.items():
+            u_global = np.concatenate((u_global, u[values_id]))
+
+        return self.P.T.dot(u_global) # back to original order
+            
+def build_SelectionOperator(comp,map_dict,tag_name='phys_group'):
+    ''' build a SelectionOperator given a AMfe mechanical System
+    
+    Parameters:
+        comp : Amfe.MechanicalSystem
+            an Amfe.MechanicalSystem instance
+        
+        map_dict : dict
+            a dict containing a mapping of new names 
+            ex.: map_dict = {'d': {'tag_value': 1, 'direction' : 'xy'},
+            'n': {'tag_value': 12, 'direction' : 'y'},
+            'c': {'tag_value': 12, 'direction' : 'y'}}
+        tag_name : string
+            tag name to select dofs
+    '''
+    m = comp.mesh_class
+    id_matrix = comp.assembly_class.id_matrix
+    
+    all_dofs = []
+    for key, item in id_matrix.items():
+        all_dofs.extend(item)
+    
+    dof_dict = collections.OrderedDict()
+    all_label_dofs = []
+    for key, item in map_dict.items():
+        submesh_obj = m.get_submesh(tag_name, item['tag_value'])
+        dofs_dict = OrderedSet(comp.get_dofs(submesh_obj, direction =item['direction']))
+        dofs_list = list(dofs_dict - all_label_dofs) # eliminating intersection with already existing dofs
+        
+        #update with COPY priorit_dofs 
+        dof_dict[key] = dofs_list
+        all_label_dofs.extend(dofs_list)
+        
+    interior_dofs = list(OrderedSet(all_dofs) - all_label_dofs)
+    dof_dict['i'] = interior_dofs
+
+    return SelectionOperator(dof_dict,id_matrix)
+            
             
 class  Test_Operators(TestCase):
     def setUp(self):
@@ -441,5 +474,8 @@ class  Test_Operators(TestCase):
         assert_array_equal(actual,desired)
         assert_array_equal(u_back,u )
     
+    def test_HBM_Operator(self):
+        pass
+
 if __name__ == '__main__':
     main()            

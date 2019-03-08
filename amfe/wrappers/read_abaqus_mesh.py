@@ -273,11 +273,15 @@ def create_amfe_elem_data_frame(elem_list):
         my_dict = {}
         for elem in elem_set_tags['elem_dict']:             
             my_dict['idx_abaqus'] = elem
-            my_dict['phys_group'] = elem_set
+            try:
+                my_dict['phys_group'] = int(elem_set)
+            except:
+                my_dict['phys_group'] = elem_set
+                
             my_dict['el_type'] = elem_type
             my_dict['no_of_mesh_partitions'] = 1
             my_dict['partition_id'] = 1
-            node_list = elem_set_tags['elem_dict'][elem]
+            node_list = elem_set_tags['elem_dict'][elem][::-1]
             for id_col, value in enumerate(node_list):
                 # changing node index to amfe index starting from 0
                 my_dict[str(id_col)] = value - 1
