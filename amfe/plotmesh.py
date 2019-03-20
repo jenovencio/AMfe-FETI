@@ -683,6 +683,52 @@ def plotDeformQuadMesh(connectivity, nodes, displacement, factor=1, ax = None, c
     
     return p, ax
 
+def plot_deform_2D_cyclic_mesh(m, nsectors, u_dict, u_id, factor=1, ax = None, color_id=None):
+
+    if ax == None:
+        fig = plt.figure()
+        ax = plt.axes() 
+
+    connectivity = m.connectivity
+    
+    elem_nodes = connectivity[0].shape[0] 
+
+    for i in range(nsectors):
+        mi  = m.rot_z(i*(360/nsectors))    
+        nodes = mi.nodes
+        displacement = u_dict[i].T.real[u_id,:]
+        if elem_nodes == 4:
+            plotDeformQuadMesh(connectivity,nodes, displacement,factor=factor,ax=ax,color_id=color_id)
+        elif elem_nodes == 3:
+            plotDeformTriMesh( connectivity,nodes, displacement,factor=factor,ax=ax,color_id=color_id)
+        else:
+            raise('Connectivity node supported')
+    
+    return ax
+
+
+def plot_deform_3Dcyclic_mesh(m, u_dict, u_id, nsectors, factor=1, ax = None, color_id=None):
+
+    if ax==None:
+            ax = a3.Axes3D(plt.figure()) 
+
+    connectivity = m.connectivity
+    
+    elem_nodes = connectivity[0].shape[0] 
+
+    for i in range(nsectors):
+        mi  = m.rot_z(i*(360/nsectors))    
+        nodes = mi.nodes
+        displacement = u_dict[i].T.real[u_id,:]
+        if elem_nodes == 4:
+            plotDeformQuadMesh(connectivity,nodes, displacement,factor=factor,ax=ax,color_id=color_id)
+        elif elem_nodes == 3:
+            plotDeformTriMesh( connectivity,nodes, displacement,factor=factor,ax=ax,color_id=color_id)
+        else:
+            raise('Connectivity node supported')
+    
+    return ax
+
 def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
     ''' This function plot mesh elements
     
@@ -719,7 +765,7 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
     ax.legend()
     return ax  
     
-def plot2Dcyclicmesh(mesh_obj,nsectors, ax=None, boundaries=True):
+def plot2Dcyclicmesh(mesh_obj, nsectors, ax=None, boundaries=True,**kwargs):
     
     if ax == None:
         fig = plt.figure()
@@ -730,6 +776,19 @@ def plot2Dcyclicmesh(mesh_obj,nsectors, ax=None, boundaries=True):
     for i in range(nsectors):
         m1 = m.rot_z(i*theta) 
         ax = plot2Dmesh(m1,ax=ax)
+
+    return ax
+
+def plot3Dcyclicmesh(mesh_obj, nsectors, ax=None, **kwargs):
+    
+    if ax==None:
+        ax = a3.Axes3D(plt.figure()) 
+
+    m = mesh_obj
+    theta = 360/nsectors
+    for i in range(nsectors):
+        m1 = m.rot_z(i*theta) 
+        ax = plot3Dmesh(m1,ax=ax,**kwargs)
 
     return ax
     
@@ -843,7 +902,7 @@ def plot_superdomain(superdomain_obj, factor = 1, ax = None):
           
     return ax
 
-def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_nodes=True, scale = 1.0, Label = False):
+def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_nodes=True, scale = 1.0, Label = False,**kwargs):
 
     legend_handles = []
     if ax==None:
@@ -867,22 +926,22 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
             if elem_type in Tri_D_elem_list:
                 if elem_type=='Tet4':
                     connect = get_triangule_faces_from_tetrahedral(connect)
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
                     legend_handles.append(mpatches.Patch(color=color, label=str(key)))
 
                 elif elem_type=='Tet10':
                     connect = get_triangule_faces_from_tetrahedral(np.array(connect).T[0:4].T)
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
                     legend_handles.append(mpatches.Patch(color=color, label=str(key)))
 
                 elif elem_type=='Hexa20':
                     connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
                     legend_handles.append(mpatches.Patch(color=color, label=str(key)))
                 
                 elif elem_type=='Hexa8':
                     connect = get_quad_faces_from_hexa(np.array(connect))
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes)
+                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
                     legend_handles.append(mpatches.Patch(color=color, label=str(key)))
                 
                 else:
@@ -925,13 +984,16 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
 
         i_max = max([x_max,y_max,z_max])
         i_min = min([x_min,y_min,z_min])
-
+        max_coord = max([abs(i_max),abs(i_min)])
         #points = np.array([[x_min,y_min,z_min],
         #                    [x_max,y_max,z_max]])
 
-        points = np.array([[i_min,i_min,i_min],
-                            [i_max,i_max,i_max]])
-        ax.plot(points[:,0], points[:,1], points[:,2], 'wo')
+        #points = np.array([[i_min,i_min,i_min],
+        #                    [i_max,i_max,i_max]])
+        #ax.plot(points[:,0], points[:,1], points[:,2], 'wo')
+        ax.set_xlim((-max_coord,max_coord))
+        ax.set_ylim((-max_coord,max_coord))
+        ax.set_zlim((-max_coord,max_coord))
 
     if Label:
         ax.legend(handles= legend_handles,fontsize=30)
@@ -1319,8 +1381,7 @@ class Plot3DMesh():
                 print('Element in mesh is not supported.')
         
     def show(self,factor=1.0,displacement_id=1,scale=None,plot_nodes=None, collections=[],ax=None):
-        
-        
+
         if ax is not None:
             self.ax = ax
         
@@ -1436,6 +1497,87 @@ class Plot3DMesh():
         self.ax.set_ylim(limit_tuple)
         self.ax.set_zlim(limit_tuple)
         
+
+def plot_cyclic_mesh(m,nsectors,ax=None,bc=None,**kwargs):
+    dim = m.no_of_dofs_per_node
+    if dim ==2:
+        if ax == None:
+            fig = plt.figure()
+            ax = plt.axes() 
+
+        plot2Dcyclicmesh(m,nsectors,ax=ax)
+        if bc is not None:
+            ax.set_xlim(bc)
+            ax.set_ylim(bc)
+        
+    elif dim ==3:
+        if ax==None:
+            ax = a3.Axes3D(plt.figure()) 
+        
+        plot3Dcyclicmesh(m,nsectors,ax=ax,boundaries=False,plot_nodes=False,alpha=1.0)
+        if bc is not None:
+            ax.set_xlim(bc)
+            ax.set_ylim(bc)
+            ax.set_zlim(bc)
+
+       
+    else:
+        raise('mesh object is not supported.')
+
+    return ax
+
+
+def plot_deform_3D_mesh(mesh_obj, displacement, factor=1.0, ax=None, boundaries=False, alpha=0.2, color='grey', plot_nodes=True, scale = 1.0, Label = False, **kwargs):
+    
+    if ax is None:
+        ax = a3.Axes3D(plt.figure()) 
+    
+    m = copy.deepcopy(mesh_obj)
+    dim = m.no_of_dofs_per_node
+    if displacement is not None:
+        new_coord = m.nodes + factor*displacement.reshape(m.nodes.shape)
+        m.nodes = new_coord
+
+    plot3Dmesh(m, ax=ax, boundaries=boundaries, alpha=alpha, color=color, plot_nodes=plot_nodes, scale = scale, Label = Label, **kwargs)
+
+    return ax
+
+
+
+
+def plot_deform_3D_cyclic_mesh(m, nsectors, u_dict, u_id=0, factor=1, ax = None, **kwargs):
+
+    if ax is None:
+        ax = a3.Axes3D(plt.figure()) 
+        
+
+    for i in range(nsectors):
+        displacement = u_dict[i].T.real[u_id]
+        mi  = m.rot_z(i*(360/nsectors))    
+        plot_deform_3D_mesh(mi,displacement, factor=factor, ax=ax,**kwargs)
+        
+
+    return ax
+
+
+def plot_deform_cyclic_mesh(m, nsectors,u_dict, u_id, factor=1, ax = None, bc=None,color_id=None,**kwargs):
+
+    dim = m.no_of_dofs_per_node
+    if dim==2:
+        ax = plot_deform_2D_cyclic_mesh(m, nsectors, u_dict, u_id, factor=factor, ax = ax, color_id=color_id)
+        if bc is not None:
+            ax.set_xlim(bc)
+            ax.set_ylim(bc)
+        return 
+
+    elif dim ==3:
+        ax = plot_deform_3D_cyclic_mesh(m, nsectors, u_dict, u_id=u_id, factor=factor, ax = ax, **kwargs)
+        if bc is not None:
+            ax.set_xlim(bc)
+            ax.set_ylim(bc)
+            ax.set_zlim(bc)
+
+    return ax
 #----------------------------------------------------------------------
 # This Function will be deprecated in the Future
 #----------------------------------------------------------------------
