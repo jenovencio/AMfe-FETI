@@ -20,7 +20,7 @@ libname = {'linux':'libmkl_rt.so', # works for python3 on linux
 
 
 def _load_mkl():
-    
+    mkllib = None
     try:
         # Look for MKL in path
         mkllib = CDLL(libname[platform])

@@ -20,28 +20,36 @@ from .loadmkl import mkllib
 
 
 # 1. pardisoinit
-pardisoinit = mkllib.pardisoinit
-pardisoinit.argtypes = [POINTER(c_longlong),
-                        POINTER(c_int),
-                        POINTER(c_int)]
-pardisoinit.restype = None
+try:
+	pardisoinit = mkllib.pardisoinit
+	pardisoinit.argtypes = [POINTER(c_longlong),
+		                POINTER(c_int),
+		                POINTER(c_int)]
+	pardisoinit.restype = None
+except:
+	print('Could not load paradiso!')
+	pass
 
 # 2. pardiso
-pardiso = mkllib.pardiso
-pardiso.argtypes = [POINTER(c_longlong), # pt
-                    POINTER(c_int),      # maxfct
-                    POINTER(c_int),      # mnum
-                    POINTER(c_int),      # mtype
-                    POINTER(c_int),      # phase
-                    POINTER(c_int),      # n
-                    POINTER(None),       # a
-                    POINTER(c_int),      # ia
-                    POINTER(c_int),      # ja
-                    POINTER(c_int),      # perm
-                    POINTER(c_int),      # nrhs
-                    POINTER(c_int),      # iparm
-                    POINTER(c_int),      # msglvl
-                    POINTER(None),       # b
-                    POINTER(None),       # x
-                    POINTER(c_int)]      # error)
-pardiso.restype = None
+try:
+	pardiso = mkllib.pardiso
+	pardiso.argtypes = [POINTER(c_longlong), # pt
+		            POINTER(c_int),      # maxfct
+		            POINTER(c_int),      # mnum
+		            POINTER(c_int),      # mtype
+		            POINTER(c_int),      # phase
+		            POINTER(c_int),      # n
+		            POINTER(None),       # a
+		            POINTER(c_int),      # ia
+		            POINTER(c_int),      # ja
+		            POINTER(c_int),      # perm
+		            POINTER(c_int),      # nrhs
+		            POINTER(c_int),      # iparm
+		            POINTER(c_int),      # msglvl
+		            POINTER(None),       # b
+		            POINTER(None),       # x
+		            POINTER(c_int)]      # error)
+	pardiso.restype = None
+except:
+	print('Could not load paradiso!')
+	pass

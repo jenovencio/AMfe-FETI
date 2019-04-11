@@ -7,7 +7,10 @@ import scipy as sp
 from scipy import linalg
 from scipy.sparse import linalg as splinalg
 
-from .solver import solve_sparse, PardisoSolver
+try:
+	from .solver import solve_sparse, PardisoSolver
+except:
+	pass
 
 __all__ = ['krylov_subspace',
            'compute_modes_pardiso',

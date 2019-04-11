@@ -30,11 +30,17 @@ from .contact import *
 from .linalg import *
 
 # Reduction stuff
-from .reduced_basis import *
-from .hyper_red import *
+try:
+	from .reduced_basis import *
+	from .hyper_red import *
+except:
+	pass
 
 # Structural dynamics
-from .structural_dynamics import *
+try:
+	from .structural_dynamics import *
+except:
+	pass
 
 # Commented out as a dill dependency is required only here
 from .num_exp_toolbox import *
