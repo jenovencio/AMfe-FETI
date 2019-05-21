@@ -1,0 +1,18 @@
+Metadata-Version: 1.2
+Name: amfe
+Version: 0.2
+Summary: Nonlinear Finite Element Code with simplicity in mind.
+Home-page: https://github.com/tum-am/amfe
+Author: Johannes Rutzmoser
+Author-email: johannes.rutzmoser@tum.de
+Maintainer: Christian Meyer
+Maintainer-email: christian.meyer@tum.de
+License: BSD3-License
+Download-URL: Where to download it.
+Description: Nonlinear Finite Element Code for     Structural Dynamics.     This code includes Model Order Reduction Techniques for nonlinear Systems     such as DEIM or ECSW.
+Platform: Linux
+Platform: Windows
+Provides: a
+Provides: m
+Provides: f
+Provides: e
