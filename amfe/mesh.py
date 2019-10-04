@@ -2198,13 +2198,20 @@ class SubMesh():
         return self.parent_mesh.get_submesh(tag,value)
 
     def create_node_list(self):
+
+
         node_list = []
-        elem_start_index = self.parent_mesh.node_idx
-        elem_last_index = len(self.parent_mesh.el_df.columns)
-        
-        for node_id in range(elem_start_index, elem_last_index):
-            nodes = self.elem_dataframe.iloc[:,node_id].tolist()
-            node_list.extend(nodes)
+
+        if 'connectivity' not in self.parent_mesh.el_df:
+            elem_start_index = self.parent_mesh.node_idx
+            elem_last_index = len(self.parent_mesh.el_df.columns)
+            
+            for node_id in range(elem_start_index, elem_last_index):
+                nodes = self.elem_dataframe.iloc[:,node_id].tolist()
+                node_list.extend(nodes)
+        else:
+            for nodes in self.parent_mesh.el_df['connectivity']:
+                node_list.extend(nodes)
         
         # removing duplicate node
         node_set = set(node_list)
