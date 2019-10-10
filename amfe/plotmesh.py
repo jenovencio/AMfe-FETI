@@ -1560,6 +1560,41 @@ def plot_deform_3D_cyclic_mesh(m, nsectors, u_dict, u_id=0, factor=1, ax = None,
     return ax
 
 
+def plot_force(force,coord,ax=None,dim=3,factor=1.0,**kwargs):
+
+    v = force.reshape(int(force.shape[0]/dim),dim)
+
+    if ax is None:
+        if dim==2:
+            fig = plt.figure()
+            ax = plt.axes() 
+            ax = plot_2d_force(v,coord,ax,factor,**kwargs)
+
+        elif dim==3:
+            ax = a3.Axes3D(plt.figure()) 
+            plot_3d_force(v,coord,ax,factor,**kwargs)
+        else:
+            raise ValueError('Dimension = %i is not supported' %i)
+
+    return ax
+
+def plot_2d_force(v,coord,ax,factor,**kwargs):
+
+    #ax.plot(coord,'o')
+    for ci, vi in zip(coord,v): 
+        ax.arrow(ci[0],ci[1],factor*vi[0],factor*vi[1],**kwargs)
+
+    return ax
+
+def plot_3d_force(v,coord,ax,factor,**kwargs):
+
+    #ax.plot(coord,'o')
+    for ci, vi in zip(coord,v): 
+        ax.quiver(ci[0],ci[1],ci[2],factor*vi[0],factor*vi[1],factor*vi[2],**kwargs)
+
+    return ax
+
+
 def plot_deform_cyclic_mesh(m, nsectors,u_dict, u_id, factor=1, ax = None, bc=None,color_id=None,**kwargs):
 
     dim = m.no_of_dofs_per_node
