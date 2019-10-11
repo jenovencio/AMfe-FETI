@@ -1564,17 +1564,18 @@ def plot_force(force,coord,ax=None,dim=3,factor=1.0,**kwargs):
 
     v = force.reshape(int(force.shape[0]/dim),dim)
 
-    if ax is None:
-        if dim==2:
+    if dim==2:
+        if ax is None:
             fig = plt.figure()
             ax = plt.axes() 
-            ax = plot_2d_force(v,coord,ax,factor,**kwargs)
+        ax = plot_2d_force(v,coord,ax,factor,**kwargs)
 
-        elif dim==3:
+    elif dim==3:
+        if ax is None:
             ax = a3.Axes3D(plt.figure()) 
-            plot_3d_force(v,coord,ax,factor,**kwargs)
-        else:
-            raise ValueError('Dimension = %i is not supported' %i)
+        plot_3d_force(v,coord,ax,factor,**kwargs)
+    else:
+        raise ValueError('Dimension = %i is not supported' %i)
 
     return ax
 
