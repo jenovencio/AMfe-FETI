@@ -729,7 +729,7 @@ def plot_deform_3Dcyclic_mesh(m, u_dict, u_id, nsectors, factor=1, ax = None, co
     
     return ax
 
-def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
+def plot2Dmesh(mesh_obj,ax=None, boundaries=True, counter=0):
     ''' This function plot mesh elements
     
     Argument:
@@ -743,13 +743,20 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True):
 
     key_list = []
     mesh_obj.split_in_groups()
-
+    
     for sub_key,submesh_obj in mesh_obj.groups.items():
         if ax == None:
-            ax = plot_submesh(submesh_obj,color_id = sub_key)
+            if isinstance(sub_key,int):
+                ax = plot_submesh(submesh_obj,color_id = sub_key)
+            else:
+                ax = plot_submesh(submesh_obj,color_id=counter)
         else:
-            ax = plot_submesh(submesh_obj ,ax, color_id = sub_key)      
-           
+            if isinstance(sub_key,int):
+                ax = plot_submesh(submesh_obj ,ax, color_id = sub_key)      
+            else:
+                ax = plot_submesh(submesh_obj ,ax, color_id=counter)      
+
+        counter+=1
         #print(p)    
         #if p is not None:
         #    p.set_label(['domain %s' %str(sub_key)])

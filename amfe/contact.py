@@ -6,6 +6,8 @@
 
 import numpy as np
 import copy
+from scipy import sparse
+import numdifftools as nd
 
 class Contact():
     ''' This is a class to hanble contact element
@@ -137,3 +139,292 @@ class Cyclic_Contact(Contact):
         super(Cyclic_Contact,self).__init__(master_submesh,virtual_slave, type, tol_radius)
         
     
+
+def H(x):
+    if x>=1.0E-16:
+        return 1.0
+    elif x<-1.0E-16:
+        return 0.0
+    else:
+        return 0.5
+
+def R(x):
+    if x<=0.0:
+        return 0.0
+    else:
+        return x
+
+def df_normf(x): 
+    norm_x = np.linalg.norm(x)
+    if norm_x>0.0:
+        return (1.0/norm_x)*np.eye(len(x)) - (1.0/norm_x**3)*np.outer(x,x)
+    else:
+        return np.eye(len(x))*0.0
+
+
+class jenkins():
+    
+    def __init__(self, X_contact, X_target, normal, ro = 1.0E8 ,k=1.0E7, mu=0.2, N0 = 0.0):
+        
+        # contact properties
+        self.ro = ro
+        self.k = k
+        
+        self.mu = mu
+        self.N0 = N0
+        
+        #contact parameters
+        self.dim = 2*int(X_target.shape[0])
+        self.X_target = X_target
+        self.X_contact = X_contact
+        self.normal = normal
+
+        if np.abs(np.linalg.norm(self.normal) - 1.0)>1.0E-12:
+            raise ValueError('Normal vector has norm different than 1.0!')
+        
+        self.alpha_0 = np.zeros(X_target.shape)
+        self.gap_n = np.zeros(X_target.shape)
+
+        self._f = lambda u, x0 : self.compute(u, x0)
+
+        self.n_var = int(self.dim/2)
+        self.n_vec = np.concatenate([self.normal,-self.normal])
+        I = sparse.eye(self.n_var)
+        self.B = sparse.bmat([[I,-I],[-I,I]]).A
+        self.Bv = np.outer( self.n_vec, self.n_vec)
+        
+    def compute_gap_and_tangent(self, u, un):
+        
+        dim = self.dim
+        if dim%2:
+            raise ValueError('Displacement vector is not compatible')
+
+        u_target = u[:int(dim/2)]
+        u_contact = u[int(dim/2):]
+        
+        un_target = un[:int(self.dim/2)]
+        un_contact = un[int(dim/2):]
+        
+        x_contact = self.X_contact + u_contact
+        x_target = self.X_target + u_target
+
+        xn_contact = self.X_contact + un_contact
+        xn_target = self.X_target + un_target
+        
+        delta = x_contact - x_target
+        gap = self.normal.dot(delta)
+        delta_gap = delta - xn_contact + xn_target
+        u_tangent = delta_gap.dot(self.normal)*self.normal - delta_gap 
+        
+        
+        if u_tangent.dot(self.normal)>1.E-10:
+            raise ValueError('Tangent and Normal vector are not orthogonal!')
+
+        return gap, u_tangent        
+        
+    def compute_tangent_force(self,tangent,N):
+        
+        N += self.N0
+        delta_gap = tangent
+        self.Ft_trial = Ft_trial = self.alpha_0 - self.k*delta_gap 
+        norm_Ft_trial = np.linalg.norm(Ft_trial)
+        if norm_Ft_trial>0:
+            d = Ft_trial/norm_Ft_trial
+        else:
+            d = self.normal
+
+        Phi = norm_Ft_trial - self.mu*N
+
+        self.alpha = -R(Phi)*d + Ft_trial
+        return self.alpha
+        
+    def compute(self,u,x):
+        
+        
+        gap, u_tangent = self.compute_gap_and_tangent(u, x)
+        self.N = N = -self.ro*R(-gap) 
+        normal_force = N*self.normal
+        tangent_force = self.compute_tangent_force(u_tangent,N)
+        force = normal_force + tangent_force
+        return np.concatenate([force,-force])
+
+    def update_alpha(self):
+        self.alpha_0 = self.alpha
+
+    def refresh_alpha(self):
+        self.alpha_0 = 0.0*self.alpha
+
+    def compute_jac(self,u,x0,method='central-difference'):
+
+        
+        if method=='central-difference':
+            Jfun = nd.Jacobian(lambda u : self._f(u,x0),method='forward')
+            J_eval = Jfun(u) 
+            return  J_eval
+
+        else:
+            raise NotImplementedError('Method is not impemented!')
+
+    def Jacobian(self,u, un):
+
+        gap, u_tangent = self.compute_gap_and_tangent(u, un)
+        
+        n_var = self.n_var
+        n_vec = self.n_vec
+        
+        B = self.B
+        Bv = self.Bv
+        duTdu = B - Bv
+        dRdu = -self.ro*H(-gap)
+        dfx = dRdu*Bv
+        dftrialdu = -self.k*duTdu
+
+        def direct(u):
+            norm_Ft_trial = np.linalg.norm(Ft_trial) 
+            if norm_Ft_trial>0.0:
+                d = Ft_trial/norm_Ft_trial
+            else:
+                d =  self.normal
+            return np.concatenate([d,-d])
+        
+        Ft_trial = self.Ft_trial
+        N = self.N
+        Phi = np.linalg.norm(Ft_trial) - self.mu*N
+        Rphi = -R(Phi)
+        dPhi_ana = lambda u : dftrialdu[:,:n_var].dot(direct(u)[:n_var]) - self.mu*dfx[:,:n_var].dot(self.normal)
+        dd_ana = df_normf(np.concatenate([Ft_trial,-Ft_trial])).dot(dftrialdu)
+        dp1_ana = lambda u : np.outer(direct(u),-H(Phi)*dPhi_ana(u)) - Rphi*dd_ana
+
+        if gap>=0:
+            JFtdu_eval =  np.zeros((self.dim, self.dim))
+        else:
+            JFtdu_eval = dp1_ana(u)  + dftrialdu
+
+        JFt = JFtdu_eval
+        J_ana = dfx.T + JFt
+        return J_ana
+
+
+
+class Nonlinear_force_assembler():
+    def __init__(self,map_dict,contact_list):
+        self.map_dict = map_dict
+        self.contact_list = contact_list
+        self._jac = None
+        self.force = None
+        self.global_jac = None
+
+    def Jacobian(self,u=None,X0=None):
+                
+        if self.global_jac is None:
+            self.global_jac = sparse.lil_matrix((u.shape[0], u.shape[0]))
+
+        global_jac = 0.0*self.global_jac
+        for key,global_index in self.map_dict.items():
+            local_jac_ = self.contact_list[key].Jacobian(u[global_index],X0[global_index])
+            global_jac[np.ix_(global_index,global_index)] = local_jac_
+        
+        return global_jac
+
+    def compute(self,u,X0):
+        
+        try:
+            self.force = 0.0*self.force
+        except:
+            self.force = np.zeros(u.shape)
+        
+        v = compute_force(self.force,u,X0,self.map_dict,self.contact_list)
+        return v
+        
+    def update_alpha(self):
+
+        for c in self.contact_list:
+            c.update_alpha()
+
+    def refresh_alpha(self):
+        for c in self.contact_list:
+            c.refresh_alpha()
+
+
+def compute_force(global_force,u,X0,map_dict,contact_list):
+    for key,global_index in map_dict.items():
+        local_force = contact_list[key].compute(u[global_index],X0[global_index])
+        global_force[global_index] = local_force
+   
+    return global_force
+
+
+
+
+class Create_node2node_force_object():
+    """
+    This class provides data and methods to create nonlinear force 
+    object
+
+    Properties 
+    contact : Contact obj
+        object with conctact information
+    bodies_contact_id : tuple
+        tuple with bodies id (i,j) where i is the master id and j is the slave id
+    elem_type : string
+        string with the element type, must be implemented in the contact module
+    elem_properties : dict
+        dict with the properties of the contact element
+    dimension: int
+        dimension of the problem
+    map_local_domain_dofs_dimension : dict
+        dict with where key is the body id and value is the number of dofs
+    """
+    def __init__(self,contact,bodies_contact_id,elem_type,elem_properties,dimension,map_local_domain_dofs_dimension):
+        
+        self.contact = contact
+        self.bodies_contact_id = bodies_contact_id
+        self.elem_type = elem_type
+        self.elem_properties = elem_properties
+        self.dimension = dimension
+        self.map_local_domain_dofs_dimension = map_local_domain_dofs_dimension
+
+        self._find_shift()
+        
+    def _find_shift(self):
+
+        body_id_list = list(self.map_local_domain_dofs_dimension.keys())
+        body_id_list.sort()
+        self.shift_dict = {}
+        shift = 0
+        for body_id in body_id_list:
+            self.shift_dict[body_id] = shift
+            shift+=self.map_local_domain_dofs_dimension[body_id]
+
+        return self.shift_dict
+        
+    def assemble_nonlinear_force(self):
+        
+        dimension = self.dimension
+        elem_obj_ = globals()[self.elem_type]
+        map_dict = {}
+        contact_id = 0
+        contact_list = []
+        for key, value in self.contact.contact_elem_dict.items():
+            shift_master = self.shift_dict[self.bodies_contact_id[0]]
+            shift_slave = self.shift_dict[self.bodies_contact_id[1]]
+            start_master = shift_master + key*dimension
+            start_slave = shift_slave + value*dimension
+            dof_list = list(range(start_master,start_master+dimension))
+            dof_list.extend(list(range(start_slave,start_slave+dimension)))
+            map_dict[contact_id] = dof_list
+            X_target = self.contact.master_submesh.parent_mesh.nodes[key]
+            X_contact =  self.contact.slave_submesh.parent_mesh.nodes[value]
+            normal = -self.contact.master_normal_dict[key][:dimension]
+            elem_obj = elem_obj_(X_contact, X_target, normal,**self.elem_properties)
+            contact_list.append(elem_obj)
+            contact_id +=1
+
+        Fnl_obj = Nonlinear_force_assembler(map_dict,contact_list)
+        return Fnl_obj
+
+    def get_master_B(self):
+        pass
+
+    def get_slave_B(self):
+        pass
