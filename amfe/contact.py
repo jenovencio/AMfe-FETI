@@ -313,18 +313,44 @@ class Nonlinear_force_assembler():
         self._jac = None
         self.force = None
         self.global_jac = None
+        self.row_indices = None
+        self.col_indices = None
+
+    def _prealloc_jac(self,m):
+
+        row_indices = np.array([],dtype=np.int)
+        col_indices = np.array([],dtype=np.int)
+
+        for key,global_index in self.map_dict.items():
+            #local_jac_ = self.contact_list[key].Jacobian(u[global_index],X0[global_index])
+            #rows, cols = np.meshgrid(global_index,global_index)
+            cols, rows = np.meshgrid(global_index,global_index)
+            row_indices =  np.concatenate((row_indices,rows.flatten()))
+            col_indices =  np.concatenate((col_indices,cols.flatten()))
+            
+        data = np.zeros(len(row_indices))
+        self.global_jac = sparse.coo_matrix((data,(row_indices,col_indices)),shape=(m,m))
+        self.global_jac.tocsr()
+        self.row_indices = row_indices
+        self.col_indices = col_indices
+        return self.global_jac
 
     def Jacobian(self,u=None,X0=None):
                 
+        
         if self.global_jac is None:
-            self.global_jac = sparse.lil_matrix((u.shape[0], u.shape[0]))
-
-        global_jac = 0.0*self.global_jac
+            #self.global_jac = sparse.lil_matrix((u.shape[0], u.shape[0]))
+            self._prealloc_jac(u.shape[0])
+            
+        #global_jac = 0.0*self.global_jac
+        data = np.array([])
         for key,global_index in self.map_dict.items():
             local_jac_ = self.contact_list[key].Jacobian(u[global_index],X0[global_index])
-            global_jac[np.ix_(global_index,global_index)] = local_jac_
+            data = np.concatenate((data,local_jac_.flatten()))
+            #self.global_jac[np.ix_(global_index,global_index)] = local_jac_
         
-        return global_jac
+        self.global_jac.data = data
+        return self.global_jac
 
     def compute(self,u,X0):
         

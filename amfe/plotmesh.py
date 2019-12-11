@@ -824,6 +824,80 @@ def plot2Dnodes(mesh_obj,ax=None,plot_nodeid=False,fonte=12,color='red'):
 
     return ax  
 
+def plot3Dnodes(mesh_obj,ax=None,plot_nodeid=False,fonte=12,color='red',marker='ko'):
+    ''' This function plot the nodes of a mesh
+    
+    Argument:
+        mesh_obj: amfe mesh instance
+        ax: matplotlib Axes
+    
+    return 
+        ax: matplotlib Axes
+
+    '''     
+
+    if ax == None:
+        ax = a3.Axes3D(plt.figure()) 
+    
+
+    ax.plot(mesh_obj.nodes.T[0],mesh_obj.nodes.T[1],mesh_obj.nodes.T[2],marker)
+    
+    if plot_nodeid:
+        for i, coord in enumerate(mesh_obj.nodes):
+            ax.text(coord[0],coord[1],coord[2], str(i), color=color, fontsize=fonte)
+            
+
+    return ax  
+
+def plot2Dnode_id(mesh_obj,node_id,ax=None,plot_nodeid=False,fonte=12,color='red'):
+    ''' This function plot the nodes of a mesh
+    
+    Argument:
+        mesh_obj: amfe mesh instance
+        ax: matplotlib Axes
+    
+    return 
+        ax: matplotlib Axes
+
+    '''     
+
+    if ax == None:
+        ax = plt.axes() 
+    
+    coord = mesh_obj.nodes[node_id]
+
+    ax.plot(coord[0],coord[1],'o')
+    
+    if plot_nodeid:
+        ax.text(coord[0],coord[1], str(node_id), color=color, fontsize=fonte)
+            
+
+    return ax 
+
+def plot3Dnode_id(mesh_obj,node_id,ax=None,plot_nodeid=False,fonte=12,color='red',marker='ko'):
+    ''' This function plot the nodes of a mesh
+    
+    Argument:
+        mesh_obj: amfe mesh instance
+        ax: matplotlib Axes
+    
+    return 
+        ax: matplotlib Axes
+
+    '''     
+
+    if ax == None:
+        ax = a3.Axes3D(plt.figure()) 
+    
+    coord = mesh_obj.nodes[node_id]
+    ax.scatter(coord[0],coord[1],coord[2],marker)
+    
+    if plot_nodeid:
+        ax.text(coord[0],coord[1],coord[2], str(node_id), color=color, fontsize=fonte)
+            
+
+    return ax  
+
 def plot_2D_system_solution(my_system, factor=1, ax = None, u_id = 1,facecolor=(1,1,1),highlight_nodes=[],linewidth=0.5):
     ''' This function plots Triagular 2D meshes.
     
@@ -1323,7 +1397,7 @@ class Plot3DMesh():
                  plot_nodes=True, scale = 1.0, factor =1.0, Label = False, displacement_id=1, edgecolor=(0,0,0), linewidth=0.1, **kwargs):
         
         self.mesh_obj = copy.deepcopy(mesh_obj)
-        
+        self.updated_mesh_obj = copy.deepcopy(mesh_obj)
       
         if ax is None:
             self.ax = a3.Axes3D(plt.figure()) 
@@ -1452,7 +1526,7 @@ class Plot3DMesh():
             else:
                 nodes = self.mesh_obj.nodes
             self.elem_type_polygons[elem_type] = self.create_3D_polygons(nodes, connect)
-        
+            self.updated_mesh_obj.nodes = nodes
         return self.elem_type_polygons[elem_type]
         
     def create_3D_polygons(self,points_coord, vertice_matrix, edgecolor = None):
