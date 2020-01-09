@@ -994,7 +994,9 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
     for key in mesh_obj.groups:
         submesh = mesh_obj.groups[key]
         elem_list_type = submesh.get_element_type_list()
-        
+        if len(elem_list_type)>1:
+            submesh = copy.deepcopy(submesh)
+        '''
         if len(elem_list_type)>1:
             print('SubMesh with more than one type of element. \n \
             This function do not support multiple type of elements. \
@@ -1002,33 +1004,40 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
             continue 
         
         elem_type = elem_list_type[0]
-        try:
-            connect = mesh_obj.groups[key].get_submesh_connectivity()
-            if elem_type in Tri_D_elem_list:
-                if elem_type=='Tet4':
-                    connect = get_triangule_faces_from_tetrahedral(connect)
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
-                    legend_handles.append(mpatches.Patch(color=color, label=str(key)))
-
-                elif elem_type=='Tet10':
-                    connect = get_triangule_faces_from_tetrahedral(np.array(connect).T[0:4].T)
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
-                    legend_handles.append(mpatches.Patch(color=color, label=str(key)))
-
-                elif elem_type=='Hexa20':
-                    connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
-                    legend_handles.append(mpatches.Patch(color=color, label=str(key)))
-                
-                elif elem_type=='Hexa8':
-                    connect = get_quad_faces_from_hexa(np.array(connect))
-                    ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
-                    legend_handles.append(mpatches.Patch(color=color, label=str(key)))
-                
+        '''
+        for elem_type in elem_list_type:
+            try:
+                if len(elem_list_type)>1:
+                    submesh_obj_single_elem = submesh.get_submesh('el_type',elem_type)
+                    connect = submesh_obj_single_elem.get_submesh_connectivity()
                 else:
-                    raise('Type of element = %s not support by this method.' %elem_type)
-        except:
-            print('Element in mesh is not supported.')
+                    connect = submesh.get_submesh_connectivity()
+                    
+                if elem_type in Tri_D_elem_list:
+                    if elem_type=='Tet4':
+                        connect = get_triangule_faces_from_tetrahedral(connect)
+                        ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
+                        legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+
+                    elif elem_type=='Tet10':
+                        connect = get_triangule_faces_from_tetrahedral(np.array(connect).T[0:4].T)
+                        ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
+                        legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+
+                    elif elem_type=='Hexa20':
+                        connect = get_quad_faces_from_hexa(np.array(connect).T[0:8].T)
+                        ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
+                        legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+                    
+                    elif elem_type=='Hexa8':
+                        connect = get_quad_faces_from_hexa(np.array(connect))
+                        ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=alpha, color=color, plot_nodes=plot_nodes,**kwargs)
+                        legend_handles.append(mpatches.Patch(color=color, label=str(key)))
+                    
+                    else:
+                        print('Warning! Type of element = %s not support by this method.' %elem_type)
+            except:
+                print('Element in mesh is not supported.')
 
 
         

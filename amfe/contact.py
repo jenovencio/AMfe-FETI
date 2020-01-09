@@ -330,7 +330,7 @@ class Nonlinear_force_assembler():
             
         data = np.zeros(len(row_indices))
         self.global_jac = sparse.coo_matrix((data,(row_indices,col_indices)),shape=(m,m))
-        self.global_jac.tocsr()
+        #self.global_jac.tocsr()
         self.row_indices = row_indices
         self.col_indices = col_indices
         return self.global_jac
