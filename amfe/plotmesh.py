@@ -752,9 +752,9 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True, counter=0):
                 ax = plot_submesh(submesh_obj,color_id=counter)
         else:
             if isinstance(sub_key,int):
-                ax = plot_submesh(submesh_obj ,ax, color_id = sub_key)      
+                plot_submesh(submesh_obj ,ax, color_id = sub_key)      
             else:
-                ax = plot_submesh(submesh_obj ,ax, color_id=counter)      
+                plot_submesh(submesh_obj ,ax, color_id=counter)      
 
         counter+=1
         #print(p)    
@@ -770,6 +770,7 @@ def plot2Dmesh(mesh_obj,ax=None, boundaries=True, counter=0):
     #print(leg.legendHandles)
     #leg.legendHandles[-1].set_facecolor('yellow')
     ax.legend()
+    
     return ax  
     
 def plot2Dcyclicmesh(mesh_obj, nsectors, ax=None, boundaries=True,**kwargs):
@@ -854,6 +855,7 @@ def plot2Dnode_id(mesh_obj,node_id,ax=None,plot_nodeid=False,fonte=12,color='red
     
     Argument:
         mesh_obj: amfe mesh instance
+        node_id : int or list
         ax: matplotlib Axes
     
     return 
@@ -863,13 +865,19 @@ def plot2Dnode_id(mesh_obj,node_id,ax=None,plot_nodeid=False,fonte=12,color='red
 
     if ax == None:
         ax = plt.axes() 
-    
-    coord = mesh_obj.nodes[node_id]
 
-    ax.plot(coord[0],coord[1],'o')
+    if isinstance(node_id,int):
+        node_list = [node_id]
+    else:
+        node_list = node_id
     
-    if plot_nodeid:
-        ax.text(coord[0],coord[1], str(node_id), color=color, fontsize=fonte)
+    for _node_id in node_list:
+        coord = mesh_obj.nodes[_node_id]
+
+        ax.plot(coord[0],coord[1],'o')
+    
+        if plot_nodeid:
+            ax.text(coord[0],coord[1], str(_node_id), color=color, fontsize=fonte)
             
 
     return ax 
@@ -879,6 +887,7 @@ def plot3Dnode_id(mesh_obj,node_id,ax=None,plot_nodeid=False,fonte=12,color='red
     
     Argument:
         mesh_obj: amfe mesh instance
+	node_id : int or list
         ax: matplotlib Axes
     
     return 
@@ -889,11 +898,17 @@ def plot3Dnode_id(mesh_obj,node_id,ax=None,plot_nodeid=False,fonte=12,color='red
     if ax == None:
         ax = a3.Axes3D(plt.figure()) 
     
-    coord = mesh_obj.nodes[node_id]
-    ax.scatter(coord[0],coord[1],coord[2],marker)
+    if isinstance(node_id,int):
+        node_list = [node_id]
+    else:
+        node_list = node_id
+	
+    for _node_id in node_list:
+        coord = mesh_obj.nodes[_node_id]
+        ax.scatter(coord[0],coord[1],coord[2],marker)
     
-    if plot_nodeid:
-        ax.text(coord[0],coord[1],coord[2], str(node_id), color=color, fontsize=fonte)
+        if plot_nodeid:
+            ax.text(coord[0],coord[1],coord[2], str(_node_id), color=color, fontsize=fonte)
             
 
     return ax  
@@ -1035,7 +1050,7 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                         legend_handles.append(mpatches.Patch(color=color, label=str(key)))
                     
                     else:
-                        print('Warning! Type of element = %s not support by this method.' %elem_type)
+                        print('Warning! Type of element = %s is not supported by this method.' %elem_type)
             except:
                 print('Element in mesh is not supported.')
 
@@ -1050,19 +1065,25 @@ def plot3Dmesh(mesh_obj,ax=None, boundaries=True, alpha=0.2, color='grey', plot_
                 print('SubMesh with more than one type of element. \n \
                 This function do not support multiple type of elements.')
             
-            if not isinstance(elem_list_type[0],str):
-                continue
+            
 
-            elem_type = elem_list_type[0]
-            connect = mesh_obj.groups[key].get_submesh_connectivity()
+            for elem_type in elem_list_type:
 
-            if elem_type in Two_D_elem_list:
-                try:
-                    color_bound = colors[submesh.key]
-                except:
-                    color_bound = colors[0]
-                ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=1, color=color_bound, plot_nodes=plot_nodes)
-                legend_handles.append(mpatches.Patch(color=color_bound, label=str(key)))
+                if not isinstance(elem_list_type[0],str):
+                    continue
+
+                if elem_type in Two_D_elem_list:
+                    connect = mesh_obj.groups[key].get_submesh_connectivity()
+                    try:
+                        color_bound = colors[submesh.key]
+                    except:
+                        color_bound = colors[0]
+
+                    try:
+                        ax = plot_3D_polygon(nodes, connect, ax=ax, alpha=1, color=color_bound, plot_nodes=plot_nodes)
+                        legend_handles.append(mpatches.Patch(color=color_bound, label=str(key)))
+                    except:
+                        print('WARNING! Does not support element type on Boundery!')
 
     if not plot_nodes:
         x_max = max(nodes[:,0])

@@ -1,4 +1,4 @@
-0# Copyright (c) 2017, Lehrstuhl fuer Angewandte Mechanik, Technische
+# Copyright (c) 2017, Lehrstuhl fuer Angewandte Mechanik, Technische
 # Universitaet Muenchen.
 #
 # Distributed under BSD-3-Clause License. See LICENSE-File for more information
@@ -177,6 +177,7 @@ class jenkins():
         self.dim = 2*int(X_target.shape[0])
         self.X_target = X_target
         self.X_contact = X_contact
+        self.initial_relative_displacement = X_contact - X_target
         self.normal = normal
 
         if np.abs(np.linalg.norm(self.normal) - 1.0)>1.0E-12:
@@ -221,7 +222,21 @@ class jenkins():
             raise ValueError('Tangent and Normal vector are not orthogonal!')
 
         return gap, u_tangent        
+
+    def compute_gap_and_tangent_by_relative_displacement(self, delta_u, delta_un):    
         
+        delta = -delta_u + self.initial_relative_displacement
+        gap = self.normal.dot(delta)
+        delta_gap = delta_u - delta_un 
+        u_tangent = delta_gap.dot(self.normal)*self.normal - delta_gap 
+        
+        
+        if u_tangent.dot(self.normal)>1.E-10:
+            raise ValueError('Tangent and Normal vector are not orthogonal!')
+
+        return gap, u_tangent        
+
+    
     def compute_tangent_force(self,tangent,N):
         
         N += self.N0
@@ -239,14 +254,44 @@ class jenkins():
         return self.alpha
         
     def compute(self,u,x):
-        
-        
+        '''
+        Compute force based on current and previous displacement vector
+
+        parameters:
+            u : np.array
+                current displacement vector
+            x : np.array
+                previous displacement vector
+
+        return 
+            force : np.array
+        '''
         gap, u_tangent = self.compute_gap_and_tangent(u, x)
         self.N = N = -self.ro*R(-gap) 
         normal_force = N*self.normal
         tangent_force = self.compute_tangent_force(u_tangent,N)
         force = normal_force + tangent_force
         return np.concatenate([force,-force])
+
+    def compute_force_by_relative_displacement(self,delta_u,delta_un):
+        '''
+        Compute force based on current and previous displacement vector
+
+        parameters:
+            delta_u : np.array
+                current relative displacement vector between to interfaces
+            delta_un : np.array
+                previous relative displacement vector between to interfaces
+
+        return 
+            force : np.array
+        '''
+        gap, u_tangent = self.compute_gap_and_tangent_by_relative_displacement(delta_u,delta_un)
+        self.N = N = -self.ro*R(-gap) 
+        normal_force = N*self.normal
+        tangent_force = self.compute_tangent_force(u_tangent,N)
+        force = normal_force + tangent_force
+        return force
 
     def update_alpha(self):
         self.alpha_0 = self.alpha
