@@ -1821,14 +1821,14 @@ class CraigBamptonComponent(MechanicalSystem):
 
         K_ii_inv_obj = sparse.linalg.splu(K_ii)
         D_ii_operator = sparse.linalg.LinearOperator(shape=K_ii.shape,matvec = lambda x : K_ii_inv_obj.solve(M_ii.dot(x)))
-        lambda_D_ii, V_dynamic = splinalg.eigsh(D_ii, no_of_modes)
+        lambda_D_ii, V_dynamic = splinalg.eigsh(D_ii_operator, no_of_modes)
 
 
         I = np.identity(num_of_masters)
         Zeros = np.zeros( (num_of_masters, no_of_modes))
 
         T_local_row_1 = np.hstack((I,Zeros))
-        T_local_row_2 = np.hstack((Phi.todense(),V_dynamic))
+        T_local_row_2 = np.hstack((-Phi.todense(),V_dynamic))
         T_local = np.vstack((T_local_row_1,T_local_row_2))
         
         local_indexes = []
