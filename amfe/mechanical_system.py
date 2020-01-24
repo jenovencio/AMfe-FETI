@@ -1818,7 +1818,10 @@ class CraigBamptonComponent(MechanicalSystem):
             no_of_modes = num_of_slaves-1
             print('Replacing number of modes to %i' %no_of_modes)
             
-        omega, V_dynamic = splinalg.eigsh(K_ii, no_of_modes, M_ii)
+
+        K_ii_inv_obj = sparse.linalg.splu(K_ii)
+        D_ii_operator = sparse.linalg.LinearOperator(shape=K_ii.shape,matvec = lambda x : K_ii_inv_obj.solve(M_ii.dot(x)))
+        lambda_D_ii, V_dynamic = splinalg.eigsh(D_ii, no_of_modes)
 
 
         I = np.identity(num_of_masters)
